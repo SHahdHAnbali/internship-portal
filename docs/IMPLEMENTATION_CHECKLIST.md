@@ -32,6 +32,7 @@ PostgreSQL binaries (`PG_BIN` if not on PATH).
 | 20261011090000_placement_completion | HR-only `complete_intern_placement` (early end needs a reason; blocked by open/unreviewed tasks and reports awaiting review); completion columns + consistency check; intern task/report lists show the active, else latest completed placement (read-only) | Applied + verified 2026-10-11 |
 | 20261013000000_withdraw_task_submission | `withdraw_my_intern_task_submission` + `intern_task_withdrawal_open`; `WITHDRAWN` task event | Applied + verified 2026-10-13 (owner-authorized) |
 | 20261011080000_revoke_browser_truncate | Revokes TRUNCATE/TRIGGER/REFERENCES from anon/authenticated on the six pre-history base tables | Applied + verified 2026-10-11 |
+| 20261014000000_capacity_selection_and_intake | Opportunity approval (`selection_status`), cumulative seats with explicit final selection release, `portal_settings` application-intake switch (ADMIN), intake enforcement on draft creation and review submission; replaces `create/update_training_opportunity` | Applied + verified 2026-10-14 (owner-authorized; see "Feature 2026-10-14") |
 
 ## Features
 
@@ -82,6 +83,9 @@ profile edit; review link used/expired screens.
   (`training_not_planned`), a capacity (`training_capacity_not_set`) and a free seat
   (`training_capacity_full`); lock order application → mapping (share) → opportunity.
   Proven with a real two-session test (dblink): no overbooking.
+  *Superseded in part 2026-10-14:* selection now also requires `selection_status = 'OPEN'`
+  (`training_not_approved`, `training_selection_closed`), and the free-seat check counts
+  cumulative seats (see "Feature 2026-10-14").
 - `training_plan_events`: append-only planning history (who/what/from→to/note).
 - `applications.internship_id` FK changed CASCADE → RESTRICT (training records can't be
   deleted out from under applications). No delete endpoint exists.
@@ -108,6 +112,8 @@ seats in Training Planning before selecting further applicants (intended rule).
 - `activate_intern_placement`: SCHEDULED → ACTIVE; APPLICANT → INTERN role change kept;
   refuses when ACTIVE placements already fill the seats (lock order application →
   placement → applicant → profile → opportunity). Proven with a real two-session test.
+  *Superseded 2026-10-14:* activation now checks cumulative seats consumed (not ACTIVE
+  placements) and refuses a released selection (see "Feature 2026-10-14").
 - `cancel_intern_placement`: SCHEDULED only, reason required; the application stays
   SELECTED so a new placement can be scheduled. ACTIVE placements can't be cancelled
   (ending an active internship is a later lifecycle step, not invented here).
@@ -332,6 +338,8 @@ Fixed (confirmed by evidence):
 Rules: HR only; early end (before the planned end date) needs a reason; refused while tasks are
 open or completed-but-unreviewed, or weekly reports await review; the intern keeps the INTERN role
 with read-only access; completion frees the seat; no second placement for the same application.
+*Superseded 2026-10-14:* completion no longer frees a seat. Seats are cumulative per
+opportunity and only an explicit HR selection release frees one (see "Feature 2026-10-14").
 - DB: `complete_intern_placement`, `intern_visible_placement_id`, updated `list_my_intern_tasks` /
   `list_my_weekly_reports`; 32 new DB tests incl. a concurrency test (task creation waits for and is
   refused after completion).
@@ -431,6 +439,65 @@ Owner browser walkthrough (live data has one task, IN_PROGRESS, due 2026-10-17):
 - Past-due and no-due-date refusals and the review race are covered by the DB tests (110) and the live
   rule samples; reproducing them live would need new or altered task data (the Mentor could create a
   task without a due date through the UI if a live check is wanted).
+
+## Feature 2026-10-14: training capacity, selection release, approval and application intake
+
+Rules (owner-approved 2026-10-14; summarized in the header of
+`supabase/migrations/20261014000000_capacity_selection_and_intake.sql`):
+- `internships.is_active` = listed for applicants; `internships.selection_status` = HR approval
+  (`NOT_APPROVED` for new types unless approved at creation, `OPEN`, `CLOSED`);
+  `internships.capacity` = applicants that may be selected over the opportunity's cycle (NULL = not
+  set). One opportunity row = one cycle; a later cohort is a new opportunity.
+- Seats are cumulative: every SELECTED application resolved to the opportunity consumes a seat
+  (`training_opportunity_seats_consumed`), including those whose placement was completed or
+  cancelled. Only an explicit HR selection release frees a seat.
+- Release (`release_application_selection`, HR only, reason required) is final (trigger
+  `applications_release_is_final`). It is refused if already released, if the application is not
+  SELECTED, or if it has a scheduled, active or completed placement. The application stays SELECTED
+  in history and cannot get a new placement (`selection_released`); a `SELECTION_RELEASED`
+  planning event is recorded.
+- Selection (`update_application_status_v2`) requires an OPEN opportunity (`training_not_approved`,
+  `training_selection_closed`), a capacity (`training_capacity_not_set`) and seats consumed below
+  capacity (`training_capacity_full`). `create_intern_placement` and `activate_intern_placement`
+  check cumulative seats and refuse a released selection.
+- Capacity cannot go below seats consumed (`capacity_below_selected`); an opportunity cannot return
+  to NOT_APPROVED once anyone was selected into it (`training_has_selections`).
+- Application intake (`portal_settings`, changed only by ADMIN through
+  `admin_set_application_intake`, audited as `SETTING_UPDATED`): when closed, new applications are
+  refused by trigger `applications_intake_guard` and review submission by
+  `submit_application_review_v2`; the backend answers 409 `APPLICATIONS_CLOSED` before CV parsing,
+  storage, email or account creation. Existing drafts and CVs are kept; HR work continues.
+- Migration backfill: existing opportunities with a capacity or a selected application became OPEN,
+  the others NOT_APPROVED.
+
+API: `GET /applications/intake` (public), `POST /applications/:id/release-selection` (HR),
+`GET /internships/manage` (HR; `GET /internships` lists only listed types),
+`GET/PATCH /admin/settings/application-intake` (ADMIN). `create_training_opportunity` and
+`update_training_opportunity` gained `p_is_active` and `p_selection_status`; the old signatures were
+dropped, so this backend version and the migration must be deployed together.
+
+UI: Training Planning (approval status, listing, Approve / Close / Reopen selection, seat summary:
+capacity, total selected, released, remaining), application details (Select disabled with the reason,
+Release Selection card), placement section, closed-intake states on the Apply and review pages, and
+an Application intake card in Admin → System Settings.
+
+Tests: `supabase/tests/sql/120_capacity_intake.test.sql` (including two-session races for the last
+seat and for closing intake during review submission) plus backend and frontend specs. Local results
+on 2026-10-14, re-run on 2026-10-16: backend 37 files / 741 tests, DB harness 445/445, frontend
+9 files / 28 tests; backend tsc and oxlint, frontend tsc and eslint pass.
+
+Applied 2026-10-14 with the owner's approval: the dry run listed only this file, then push. Read-only
+verification afterwards: 18 migrations; Front-End Developer became OPEN with capacity still NULL and
+1 seat consumed; the existing selected application, active placement, intern profile and task were
+unchanged; application intake open; new functions executable by service_role only.
+
+Owner browser check (reported by the owner): Training Planning shows Front-End Developer listed and
+open with capacity unset; selection is disabled because capacity is unset, and for a QA request not
+linked to an approved opportunity; Admin → System Settings shows application intake open.
+
+Not verified live: setting a capacity, selecting into a seat, releasing a selection, closing and
+reopening intake, the closed-intake applicant screens, and the concurrency behaviour on the live
+project.
 
 ## Known follow-ups
 

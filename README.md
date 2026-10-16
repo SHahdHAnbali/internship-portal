@@ -48,10 +48,12 @@ emails are sent by the backend through Resend; sign-in emails are sent by Supaba
 
 ## Setup
 
+Run these from the repository root:
+
 ```bash
-nvm use                      # Node 22
-cd backend  && npm install
-cd ../frontend && npm install
+nvm use                           # Node 22
+(cd backend  && npm install)
+(cd frontend && npm install)
 ```
 
 The frontend test dependencies were installed with `--legacy-peer-deps` because npm
@@ -76,17 +78,26 @@ cp frontend/.env.example frontend/.env
 
 ## Running in development
 
+Both development servers keep running in the terminal that starts them, so start each one
+in its own terminal window or tab, from the repository root, and stop it with Ctrl+C:
+
 ```bash
-cd backend  && npm run start:dev   # http://localhost:3000
-cd frontend && npm run dev         # http://localhost:5173
+# Terminal 1: backend (http://localhost:3000)
+cd backend && npm run start:dev
+```
+
+```bash
+# Terminal 2: frontend (http://localhost:5173)
+cd frontend && npm run dev
 ```
 
 The backend allows CORS from `http://localhost:5173` and listens on port 3000; both are
 currently hard-coded in `backend/src/main.ts`.
 
-The first administrator is created once with `cd backend && npm run admin:bootstrap -- --email <email>`
-for an account that already exists in Supabase Auth with a confirmed email (see
-`backend/scripts/bootstrap-admin.mjs`). Later staff accounts are created from the Admin portal.
+The first administrator is created once with
+`(cd backend && npm run admin:bootstrap -- --email <email>)` for an account that already
+exists in Supabase Auth with a confirmed email (see `backend/scripts/bootstrap-admin.mjs`).
+Later staff accounts are created from the Admin portal.
 
 ## Database
 
@@ -97,18 +108,25 @@ for an account that already exists in Supabase Auth with a confirmed email (see
   private `cvs` storage bucket; these predate the migration history. A reproduction of
   that base schema exists only as a test fixture (`supabase/tests/fixtures/base_schema.sql`),
   so a new Supabase project cannot yet be created from the migrations alone.
+- This limitation concerns provisioning a completely fresh Supabase project. It is not, by
+  itself, a sign of a problem in an existing project whose base tables and bucket were set up
+  before the migration history; such a project receives new migrations incrementally, and
+  this limitation is not a reason to create a new Supabase project.
 - `supabase/config.toml` configures the local Supabase CLI stack only; it does not reflect
   the settings of a remote project.
 
 ## Tests and checks
 
+Run these from the repository root; each line runs in its own subshell, so the lines can be
+run one by one or pasted together:
+
 ```bash
-cd backend  && npm test           # unit and HTTP authorization tests (Vitest)
-cd backend  && npm run lint       # oxlint
-cd backend  && npm run test:db    # SQL tests on a throwaway local PostgreSQL cluster
-cd frontend && npm test           # component and unit tests (Vitest)
-cd frontend && npm run lint       # ESLint
-cd frontend && npm run build      # type check and production build
+(cd backend  && npm test)           # unit and HTTP authorization tests (Vitest)
+(cd backend  && npm run lint)       # oxlint
+(cd backend  && npm run test:db)    # SQL tests on a throwaway local PostgreSQL cluster
+(cd frontend && npm test)           # component and unit tests (Vitest)
+(cd frontend && npm run lint)       # ESLint
+(cd frontend && npm run build)      # type check and production build
 ```
 
 `npm run test:db` (`supabase/tests/run.sh`) creates a temporary local PostgreSQL cluster,
@@ -129,6 +147,21 @@ are not on your `PATH`.
   localhost addresses.
 - Sign-in emails come from Supabase Auth. Supabase's built-in email service has strict
   sending limits; configure custom SMTP in Supabase Auth before real use.
+
+## Known limitations
+
+- **CV email extraction.** The application-review link is emailed to the address extracted
+  from the CV. CV text is parsed through OpenRouter with the model `openrouter/free`
+  (hard-coded in `backend/src/modules/applications/infrastructure/ai/ai-cv-parser.service.ts`);
+  the whole review flow therefore depends on that extraction finding the applicant's address.
+  If no valid address is found, `POST /applications/submit` is refused with HTTP 422 ("We
+  could not find a valid email address in your CV. Please add your email address to your CV
+  and try again.") before the CV is uploaded, a draft application is created or a review
+  email is sent.
+  The address is only checked for a valid format, so a well-formed but wrong extraction
+  would send the review link to that address.
+- **Fresh installations** need the base tables and the `cvs` bucket created outside the
+  migrations (see [Database](#database)).
 
 ## Project documentation
 

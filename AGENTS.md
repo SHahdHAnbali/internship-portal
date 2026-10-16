@@ -289,35 +289,48 @@ Use signed URLs for private HR CV access.
 
 ## Applicant Application Flow
 
-Current intended flow:
+Current flow (verified against the code on 2026-10-16; account provisioning is deferred
+until the reviewed application is submitted):
 
 ```text
 Applicant opens Apply page
         ↓
 Selects internship OR chooses Other
         ↓
-Uploads CV
+Uploads CV (POST /applications/submit)
         ↓
-Backend creates DRAFT application
+Backend checks that application intake is open, validates the file and
+refuses the same CV for the same training target (HTTP 409)
         ↓
-CV is parsed
+CV text is extracted and parsed
         ↓
-Applicant Auth account is created or linked
+A valid email address must be found in the CV (otherwise HTTP 422; nothing is stored)
         ↓
-profiles row is created with role APPLICANT
+CV is stored in the private cvs bucket; DRAFT application is created
+with a hashed, expiring, one-time review token. No Auth user, profiles
+row or applicants row exists yet.
         ↓
-applicants row is created or updated
+Review email is sent (Resend) to the extracted address
         ↓
-Review email is sent
+Applicant opens application review and reviews/corrects extracted information
         ↓
-Applicant opens application review
+Applicant submits final application (POST /applications/review/:reviewToken/submit)
         ↓
-Applicant reviews/corrects extracted information
+Auth user is created through the Admin API with a confirmed email
+(if an account already exists for that email, the applicant must sign in
+with it first; it is never reused silently)
         ↓
-Applicant submits final application
+submit_application_review_v2 creates or links the profiles row with role
+APPLICANT and the applicants row; a definite database failure removes the
+newly created Auth user
         ↓
 Application becomes NEW
 ```
+
+Code: `submit-application.use-case.ts`, `submit-reviewed-application.use-case.ts`,
+`applicant-account.service.ts` (backend `modules/applications`) and
+`submit_application_review_v2` (latest definition in
+`supabase/migrations/20261014000000_capacity_selection_and_intake.sql`).
 
 Applicant-facing UI must not mention AI.
 
@@ -528,9 +541,34 @@ HR:
 /hr/applications
 /hr/applications/:id
 /hr/internships
+/hr/training-planning
+/hr/intern-progress
 ```
 
-The Mentor route/workspace has been added in recent implementation work; verify the current route tree and end-to-end behavior before changing its status. The Intern portal status must also be verified from the actual repository. Do not assume either role portal is complete merely because a route exists.
+Intern (`RoleGuard` for `INTERN`, via `InternRoute`):
+
+```text
+/intern                      (dashboard)
+/intern/dashboard
+/intern/my-internship
+/intern/tasks
+/intern/training-reports
+/intern/profile
+```
+
+Mentor (`RoleGuard` for `MENTOR`):
+
+```text
+/mentor                      (dashboard)
+/mentor/dashboard
+```
+
+Source: `frontend/src/app/router.tsx` (verified 2026-10-16). These routes and the matching
+Navbar entries (marked "implemented" under Dynamic Navigation) exist in the code. That only
+means the pages and navigation exist; it is not a claim that the Intern or Mentor workflows
+have been verified end to end against live data. Verify the backend authorization and the
+actual behavior before describing either portal as complete, and do not assume a portal is
+complete merely because a route exists.
 
 Do not create fake portal pages just to make navigation look complete.
 
@@ -566,7 +604,9 @@ Sign Out
 Home
 Dashboard
 Applications
+Training Planning
 Internships
+Intern Progress
 Sign Out
 ```
 
@@ -581,7 +621,25 @@ System Settings
 Sign Out
 ```
 
-Intern and Mentor navigation should be added when their real pages exist.
+### Intern (implemented)
+
+```text
+Home
+Dashboard
+My Internship
+Tasks
+Weekly Reports
+Sign Out
+```
+
+### Mentor (implemented)
+
+```text
+Assigned Interns & Tasks
+Sign Out
+```
+
+Source: `frontend/src/components/layout/Navbar/Navbar.tsx` (verified 2026-10-16).
 
 ---
 
@@ -596,9 +654,13 @@ Guest      → Sign In
 Applicant  → My Profile
 HR         → HR Dashboard
 Admin      → Admin Dashboard
-Intern     → Intern Portal when implemented
-Mentor     → Mentor Portal when implemented
+Intern     → Intern Portal
+Mentor     → Mentor Portal
 ```
+
+Status (verified 2026-10-16 in `frontend/src/pages/public/Home/HomePage.tsx`): the Guest,
+Applicant, HR, Intern and Mentor buttons are implemented; the Admin button is not yet
+implemented.
 
 ---
 
@@ -631,7 +693,9 @@ Applications list
 Application details
 Internships management
 Internship requirements
-Training Demand
+Training Demand card on the HR Dashboard (applicant-request counts)
+Training Planning page (/hr/training-planning)
+Intern Progress page (/hr/intern-progress)
 CV access
 Application status updates
 ```
@@ -661,9 +725,14 @@ The applicant should only access their own data.
 
 ## CV Parsing
 
-Current CV parsing uses OpenRouter.
+Current CV parsing uses OpenRouter with the model `openrouter/free`, hard-coded in
+`backend/src/modules/applications/infrastructure/ai/ai-cv-parser.service.ts`.
 
-The free model has previously produced unreliable email extraction.
+The review link is emailed to the address extracted from the CV. If no valid address is
+found, `POST /applications/submit` is refused with HTTP 422 before the CV is stored, a draft
+application is created or a review email is sent. The address is only checked for a valid
+format, so a well-formed but wrong extraction would send the review link to that address
+(see "Known limitations" in `README.md`).
 
 Do not silently add regex-based extraction unless explicitly requested.
 
@@ -729,9 +798,19 @@ Do not remove legacy data until migrations are confirmed safe.
 
 ## Duplicate CV Protection
 
-This is planned but not yet confirmed as implemented.
+Implemented (verified in the repository 2026-10-16) by migration
+`supabase/migrations/20261011000000_application_data_and_status_history.sql`
+(`applications.cv_sha256` and the unique partial index
+`applications_cv_sha256_active_target_key`), the upload pre-check
+`hasActiveApplicationForCv` (HTTP 409, `submit-application.use-case.ts`), and a re-check in
+`submit_application_review_v2` (`duplicate_application`).
 
-Intended design:
+Scope: it blocks a byte-identical CV file (same SHA-256) for the same training target
+(listed internship, or the normalized "Other" text) while another application with that
+file is not `DRAFT` or `REJECTED`. It does not detect edited or re-exported CVs, and
+applications created before the migration have no stored hash.
+
+Design:
 
 ```text
 SHA-256(file.buffer)
@@ -965,7 +1044,7 @@ Keep these three concepts distinct:
 
 HR retains final decision-making authority. The system may show counts and eligibility information, but must not automatically decide to offer or cancel a training type unless that rule is explicitly approved. Do not invent minimum applicant counts, eligibility formulas, training capacity, or automatic approval thresholds. If the current schema/UI cannot record or support HR's decision, document the gap and propose the smallest suitable change; do not silently invent a data model or implement it without approval.
 
-Do not confuse the existing HR `Training Demand` page or applicant-request counts with a complete training-type decision workflow. Verify what the page actually displays, what data backs it, and whether HR can record a decision.
+Do not confuse the HR Dashboard's `Training Demand` card or other applicant-request counts with a training-type decision workflow. There is no separate Training Demand page: HR records training-type decisions on the Training Planning page (`/hr/training-planning`), which stores HR approval in `internships.selection_status` (`NOT_APPROVED`, `OPEN`, `CLOSED`) and capacity in `internships.capacity` (migration `20261014000000_capacity_selection_and_intake.sql`). Verify what each view actually displays and what data backs it before changing it.
 
 ### Placement-based HR, Mentor, and Intern relationship
 
