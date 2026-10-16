@@ -1,0 +1,213 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: "Geist Variable", sans-serif;
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* =========================
+   Light Theme
+   ========================= */
+
+:root {
+  /* Main */
+  --background: #F9F7F7;
+  --foreground: #112D4E;
+
+  /* Cards */
+  --card: #F9F7F7;
+  --card-foreground: #112D4E;
+
+  /* Popover */
+  --popover: #F9F7F7;
+  --popover-foreground: #112D4E;
+
+  /* Primary */
+  --primary: #3F72AF;
+  --primary-foreground: #F9F7F7;
+
+  /* Secondary */
+  --secondary: #DBE2EF;
+  --secondary-foreground: #112D4E;
+
+  /* Muted */
+  --muted: #DBE2EF;
+  --muted-foreground: #3F72AF;
+
+  /* Accent */
+  --accent: #DBE2EF;
+  --accent-foreground: #112D4E;
+
+  /* Destructive */
+  --destructive: oklch(0.58 0.22 25);
+
+  /* Borders & Inputs */
+  --border: #DBE2EF;
+  --input: #DBE2EF;
+
+  /* Focus Ring */
+  --ring: #3F72AF;
+
+  /* =========================
+     Charts
+     ========================= */
+
+  --chart-1: #3F72AF;
+  --chart-2: #112D4E;
+  --chart-3: #DBE2EF;
+  --chart-4: #F9F7F7;
+  --chart-5: #3F72AF;
+
+  --radius: 0.625rem;
+
+  /* =========================
+     Sidebar
+     ========================= */
+
+  --sidebar: #F9F7F7;
+  --sidebar-foreground: #112D4E;
+
+  --sidebar-primary: #3F72AF;
+  --sidebar-primary-foreground: #F9F7F7;
+
+  --sidebar-accent: #DBE2EF;
+  --sidebar-accent-foreground: #112D4E;
+
+  --sidebar-border: #DBE2EF;
+  --sidebar-ring: #3F72AF;
+}
+
+/* =========================
+   Dark Theme
+   ========================= */
+
+.dark {
+  /* Main */
+  --background: #112D4E;
+  --foreground: #F9F7F7;
+
+  /* Cards */
+  --card: #112D4E;
+  --card-foreground: #F9F7F7;
+
+  /* Popover */
+  --popover: #112D4E;
+  --popover-foreground: #F9F7F7;
+
+  /* Primary */
+  --primary: #3F72AF;
+  --primary-foreground: #F9F7F7;
+
+  /* Secondary */
+  --secondary: #3F72AF;
+  --secondary-foreground: #F9F7F7;
+
+  /* Muted */
+  --muted: #3F72AF;
+  --muted-foreground: #DBE2EF;
+
+  /* Accent */
+  --accent: #3F72AF;
+  --accent-foreground: #F9F7F7;
+
+  /* Destructive */
+  --destructive: oklch(0.70 0.18 25);
+
+  /* Borders & Inputs */
+  --border: #3F72AF;
+  --input: #3F72AF;
+
+  /* Focus Ring */
+  --ring: #90CAF9;
+
+  /* =========================
+     Charts
+     ========================= */
+
+  --chart-1: #3F72AF;
+  --chart-2: #DBE2EF;
+  --chart-3: #90CAF9;
+  --chart-4: #F9F7F7;
+  --chart-5: #112D4E;
+
+  /* =========================
+     Sidebar
+     ========================= */
+
+  --sidebar: #112D4E;
+  --sidebar-foreground: #F9F7F7;
+
+  --sidebar-primary: #3F72AF;
+  --sidebar-primary-foreground: #F9F7F7;
+
+  --sidebar-accent: #3F72AF;
+  --sidebar-accent-foreground: #F9F7F7;
+
+  --sidebar-border: #3F72AF;
+  --sidebar-ring: #90CAF9;
+}
+
+/* =========================
+   Base
+   ========================= */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  html {
+    @apply font-sans;
+  }
+}
