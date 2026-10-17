@@ -12,6 +12,7 @@ import ApplicationReview from '@/pages/public/ApplicationReview/ApplicationRevie
 import PublicInternships from '@/pages/public/Internships/Internships';
 
 import Login from '@/features/auth/Login';
+import SetPassword from '@/features/auth/SetPassword';
 import ApplicantProfile from '@/pages/applicant/Profile/ApplicantProfile';
 import RoleGuard from '@/features/auth/RoleGuard';
 import InternRoute from '@/features/intern/InternRoute';
@@ -167,6 +168,12 @@ import SystemSettings from '@/pages/admin/Settings/SystemSettings';
  
        element:
          <Login />,
+     },
+
+     {
+       // Signed-in people choose a password here (first sign-in or reset).
+       path: '/set-password',
+       element: <SetPassword />,
      },
  
      {

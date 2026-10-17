@@ -9,3 +9,6 @@ export const ROLE_HOME: Record<UserRole, string> = {
   MENTOR: '/mentor',
   ADMIN: '/admin/dashboard',
 };
+
+// Where a signed-in person chooses a password (first sign-in or reset).
+export const SET_PASSWORD_PATH = '/set-password';

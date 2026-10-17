@@ -36,6 +36,7 @@ import {
 
 import { InternTasksModule } from './modules/intern-tasks/intern-tasks.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
+import { AccountModule } from './modules/account/account.module.js';
 
 @Module({
   imports: [
@@ -64,6 +65,8 @@ import { AdminModule } from './modules/admin/admin.module.js';
     InternTasksModule,
 
     AdminModule,
+
+    AccountModule,
   ],
 })
 export class AppModule {}

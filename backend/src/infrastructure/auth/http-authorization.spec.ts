@@ -71,18 +71,25 @@ type Role = 'APPLICANT' | 'INTERN' | 'MENTOR' | 'HR' | 'ADMIN';
 const ROLES: Role[] = ['APPLICANT', 'INTERN', 'MENTOR', 'HR', 'ADMIN'];
 const tokenFor = (role: Role) => `${role.toLowerCase()}-token`;
 const idFor = (role: Role) => `${role.toLowerCase()}-user-id`;
+// Verified, active users who have not set a password yet.
+const pendingTokenFor = (role: Role) => `${role.toLowerCase()}-pending-token`;
+const SET_AT = '2026-10-01T00:00:00Z';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
 const OTHER_UUID = '22222222-2222-4222-8222-222222222222';
 const REVIEW_TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde';
 
 function createSupabaseMock() {
-  const users = new Map<string, { id: string; email: string; role: Role | null; active?: boolean }>(
-    ROLES.map((role) => [tokenFor(role), { id: idFor(role), email: `${role.toLowerCase()}@example.com`, role }]),
+  const users = new Map<string, { id: string; email: string; role: Role | null; active?: boolean; passwordSetAt?: string | null }>(
+    ROLES.map((role) => [tokenFor(role), { id: idFor(role), email: `${role.toLowerCase()}@example.com`, role, passwordSetAt: SET_AT }]),
   );
+  for (const role of ROLES) {
+    users.set(pendingTokenFor(role), { id: `${role.toLowerCase()}-pending-id`, email: `p-${role.toLowerCase()}@example.com`, role, passwordSetAt: null });
+  }
   users.set('no-profile-token', { id: 'no-profile-user-id', email: 'np@example.com', role: null });
-  users.set('inactive-admin-token', { id: 'inactive-admin-id', email: 'ia@example.com', role: 'ADMIN', active: false });
-  users.set('inactive-hr-token', { id: 'inactive-hr-id', email: 'ih@example.com', role: 'HR', active: false });
+  users.set('inactive-admin-token', { id: 'inactive-admin-id', email: 'ia@example.com', role: 'ADMIN', active: false, passwordSetAt: SET_AT });
+  users.set('inactive-hr-token', { id: 'inactive-hr-id', email: 'ih@example.com', role: 'HR', active: false, passwordSetAt: SET_AT });
+  users.set('inactive-pending-hr-token', { id: 'inactive-pending-hr-id', email: 'iph@example.com', role: 'HR', active: false, passwordSetAt: null });
 
   return {
     client: {
@@ -104,7 +111,10 @@ function createSupabaseMock() {
           },
           maybeSingle: async () => {
             const user = [...users.values()].find((candidate) => candidate.id === profileId);
-            return { data: user?.role ? { role: user.role, is_active: user.active ?? true } : null, error: null };
+            return {
+              data: user?.role ? { role: user.role, is_active: user.active ?? true, password_set_at: user.passwordSetAt ?? null } : null,
+              error: null,
+            };
           },
         };
         return query;
@@ -318,6 +328,36 @@ describe('HTTP authorization matrix', () => {
       await send({ method: 'get', path: '/admin/overview', allowed: 'ADMIN' }, 'inactive-admin-token').expect(403);
       await send({ method: 'get', path: '/hr/dashboard', allowed: 'HR' }, 'inactive-hr-token').expect(403);
       expect(adminOverview.getOverview).not.toHaveBeenCalled();
+    });
+
+    it('stay refused as deactivated even when password setup is also pending', async () => {
+      const response = await send({ method: 'get', path: '/hr/dashboard', allowed: 'HR' }, 'inactive-pending-hr-token').expect(403);
+      expect(response.body.message).toBe('This account has been deactivated');
+      expect(response.body.code).toBeUndefined();
+    });
+  });
+
+  describe('password setup pending', () => {
+    it.each(protectedRoutes)('$method $path refuses its own role until a password is set', async (route) => {
+      const response = await send(route, pendingTokenFor(route.allowed)).expect(403);
+      expect(response.body).toEqual({
+        statusCode: 403,
+        error: 'Forbidden',
+        code: 'PASSWORD_SETUP_REQUIRED',
+        message: 'Set a password before using the portal.',
+      });
+    });
+
+    it('never reaches the handlers for a pending user', async () => {
+      for (const mock of mocks.values()) mock.execute.mockClear();
+      for (const route of protectedRoutes) await send(route, pendingTokenFor(route.allowed));
+      for (const mock of mocks.values()) expect(mock.execute).not.toHaveBeenCalled();
+      expect(adminOverview.getOverview).not.toHaveBeenCalled();
+    });
+
+    it('a missing setup flag does not grant access: unauthenticated and forged sessions still get 401', async () => {
+      await send({ method: 'get', path: '/hr/dashboard', allowed: 'HR' }).expect(401);
+      await send({ method: 'get', path: '/hr/dashboard', allowed: 'HR' }, 'forged-token').expect(401);
     });
   });
 

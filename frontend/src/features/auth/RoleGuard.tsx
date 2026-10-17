@@ -9,7 +9,7 @@ import { Loader2 } from 'lucide-react';
 
 import { type UserRole } from '@/features/auth/AuthProvider';
 import { useAuth } from '@/features/auth/auth-context';
-import { ROLE_HOME } from '@/features/auth/role-home';
+import { ROLE_HOME, SET_PASSWORD_PATH } from '@/features/auth/role-home';
 
 interface RoleGuardProps {
   children: ReactNode;
@@ -23,7 +23,7 @@ export default function RoleGuard({
   allowedRoles,
   loginPath = '/login',
 }: RoleGuardProps) {
-  const { user, role, loading } = useAuth();
+  const { user, role, loading, passwordSetupRequired, passwordRecovery } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -48,6 +48,11 @@ export default function RoleGuard({
   // Signed in, but no portal role could be loaded: the login page explains.
   if (!role) {
     return <Navigate to={loginPath} replace />;
+  }
+
+  // First sign-in (or a password-reset link): choose a password first.
+  if (passwordSetupRequired || passwordRecovery) {
+    return <Navigate to={SET_PASSWORD_PATH} replace />;
   }
 
   // Wrong role: go to this user's own portal instead.

@@ -24,6 +24,12 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
   // Reloads the role from profiles (e.g. after HR activated a placement).
   refreshProfile: () => Promise<void>;
+  // The signed-in person has not set a password through the portal yet
+  // (profiles.password_set_at is NULL). Routing only, never authorization.
+  passwordSetupRequired: boolean;
+  // The session came from a password-reset email: ask for a new password.
+  passwordRecovery: boolean;
+  clearPasswordRecovery: () => void;
 }
 
 export const AuthContext =
