@@ -64,6 +64,44 @@ describe('SupabaseInternPlacementRepository RPC adapter', () => {
     await expect(repository.assignMentor('hr', 'placement-id', 'mentor-id')).rejects.toThrow(message);
   });
 
+  it('activates with the verified HR actor', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: [{ ...placementRow, status: 'ACTIVE', mentor_profile_id: 'mentor-id' }], error: null });
+    const repository = new SupabaseInternPlacementRepository({ client: { rpc } } as never);
+    await expect(repository.activate('verified-hr-id', 'placement-id'))
+      .resolves.toMatchObject({ status: 'ACTIVE', mentorProfileId: 'mentor-id' });
+    expect(rpc).toHaveBeenCalledWith('activate_intern_placement', {
+      p_actor_profile_id: 'verified-hr-id', p_placement_id: 'placement-id',
+    });
+  });
+
+  it.each([
+    ['mentor_required', 'PZ409', 'Assign a Mentor to this placement before activating it.'],
+    ['mentor_inactive', 'PZ409', 'The assigned Mentor’s account is deactivated. Assign an active Mentor before activating the placement.'],
+    ['mentor_profile_required', 'PZ400', 'The assigned Mentor no longer has a Mentor account. Assign an active Mentor before activating the placement.'],
+  ])('maps %s on activation to a 409 conflict', async (key, code, message) => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code, message: key } });
+    const repository = new SupabaseInternPlacementRepository({ client: { rpc } } as never);
+    const failure = repository.activate('hr', 'placement-id');
+    await expect(failure).rejects.toBeInstanceOf(ConflictException);
+    await expect(failure).rejects.toMatchObject({ status: 409, message });
+  });
+
+  it('keeps the assignment wording for Mentor errors outside activation', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: 'PZ400', message: 'mentor_profile_required' } });
+    const repository = new SupabaseInternPlacementRepository({ client: { rpc } } as never);
+    await expect(repository.assignMentor('hr', 'placement-id', 'not-a-mentor'))
+      .rejects.toMatchObject({ status: 400, message: 'Choose an existing Mentor.' });
+  });
+
+  it('refuses removing an active placement\'s Mentor with a clear conflict', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: 'PZ409', message: 'active_placement_requires_mentor' } });
+    const repository = new SupabaseInternPlacementRepository({ client: { rpc } } as never);
+    await expect(repository.unassignMentor('verified-hr-id', 'placement-id', null)).rejects.toMatchObject({
+      status: 409,
+      message: 'An active placement must always have a Mentor. Choose a replacement Mentor and use Change Mentor instead.',
+    });
+  });
+
   it('rejects a Mentor list without workload counts', async () => {
     const rpc = vi.fn().mockResolvedValue({ data: [{ id: 'm', full_name: null, email: null }], error: null });
     const repository = new SupabaseInternPlacementRepository({ client: { rpc } } as never);

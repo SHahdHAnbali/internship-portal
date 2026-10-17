@@ -71,7 +71,9 @@ export default function MentorDashboard() {
                   <CardTitle>{placement.internName || 'Intern name unavailable'}</CardTitle>
                   <CardDescription className="mt-1">{placement.internEmail || 'Email unavailable'}</CardDescription>
                 </div>
-                <Badge variant={placement.status === 'ACTIVE' ? 'default' : 'secondary'}>{PLACEMENT_LABELS[placement.status]}</Badge>
+                <Badge variant={placement.status === 'ACTIVE' ? 'default' : 'secondary'}>
+                  {placement.status === 'COMPLETED' ? 'Completed — read-only' : PLACEMENT_LABELS[placement.status]}
+                </Badge>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div className="grid gap-2 text-sm sm:grid-cols-2">
@@ -89,6 +91,14 @@ export default function MentorDashboard() {
                   <>
                     <MentorPlacementTaskManager placementId={placement.placementId} />
                     <MentorWeeklyReports placementId={placement.placementId} />
+                  </>
+                ) : placement.status === 'COMPLETED' ? (
+                  <>
+                    <p className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      <ClipboardList className="size-4" />This placement is completed. Its tasks and weekly reports are read-only.
+                    </p>
+                    <MentorPlacementTaskManager placementId={placement.placementId} readOnly />
+                    <MentorWeeklyReports placementId={placement.placementId} readOnly />
                   </>
                 ) : (
                   <div className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">

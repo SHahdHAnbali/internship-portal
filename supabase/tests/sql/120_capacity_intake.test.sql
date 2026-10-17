@@ -122,6 +122,8 @@ SELECT public.t_expect_error('C2 a linked "Other" request uses the same seats',
   'training_capacity_full');
 SELECT public.t_expect_ok('C3 place the first selected applicant',
   $q$SELECT * FROM public.create_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000c1','Acme',NULL,current_date,current_date + 60)$q$);
+SELECT public.t_expect_ok('C3 assign its Mentor (required for activation)',
+  $q$SELECT * FROM public.assign_intern_placement_mentor('00000000-0000-0000-0000-000000000001',(SELECT id FROM public.intern_placements WHERE application_id='00000000-0000-0000-0000-0000000000c1'),'00000000-0000-0000-0000-000000000002')$q$);
 SELECT public.t_expect_ok('C4 activation at full capacity does not count the person again',
   $q$SELECT * FROM public.activate_intern_placement('00000000-0000-0000-0000-000000000001',(SELECT id FROM public.intern_placements WHERE application_id='00000000-0000-0000-0000-0000000000c1'))$q$);
 SELECT public.t_expect_ok('C5 complete it (early, with a reason)',

@@ -33,6 +33,7 @@ PostgreSQL binaries (`PG_BIN` if not on PATH).
 | 20261013000000_withdraw_task_submission | `withdraw_my_intern_task_submission` + `intern_task_withdrawal_open`; `WITHDRAWN` task event | Applied + verified 2026-10-13 (owner-authorized) |
 | 20261011080000_revoke_browser_truncate | Revokes TRUNCATE/TRIGGER/REFERENCES from anon/authenticated on the six pre-history base tables | Applied + verified 2026-10-11 |
 | 20261014000000_capacity_selection_and_intake | Opportunity approval (`selection_status`), cumulative seats with explicit final selection release, `portal_settings` application-intake switch (ADMIN), intake enforcement on draft creation and review submission; replaces `create/update_training_opportunity` | Applied + verified 2026-10-14 (owner-authorized; see "Feature 2026-10-14") |
+| 20261017000000_mentor_activation_history_and_reassignment | Activation requires an eligible assigned Mentor (`mentor_required`); the assigned, active Mentor reads a COMPLETED placement's tasks, task history and reports (read-only); an ACTIVE placement's Mentor can be replaced but not removed (`active_placement_requires_mentor`) | **Written + locally verified 2026-10-17; NOT applied to the linked project** (dry run lists only this file) |
 
 ## Features
 
@@ -498,6 +499,41 @@ linked to an approved opportunity; Admin → System Settings shows application i
 Not verified live: setting a capacity, selecting into a seat, releasing a selection, closing and
 reopening intake, the closed-intake applicant screens, and the concurrency behaviour on the live
 project.
+
+## Feature 2026-10-17: Mentor required for activation, completed history, no Mentor gap
+
+Rules (owner-approved 2026-10-17), migration `20261017000000_mentor_activation_history_and_reassignment.sql`
+(`CREATE OR REPLACE`, signatures, return types, volatility and SECURITY INVOKER unchanged;
+service_role-only grants restated; no table, column or data change):
+- `activate_intern_placement` refuses a placement without a Mentor (`mentor_required`, 409), a
+  Mentor id that is not a MENTOR profile (`mentor_profile_required`) or a deactivated Mentor
+  (`mentor_inactive`). The Mentor is read from the placement row locked FOR UPDATE and the Mentor
+  profile is locked FOR SHARE (placement first, then Mentor). Opening an opportunity and selecting
+  an applicant do not involve a Mentor. Existing active placements are untouched.
+- `list_mentor_intern_tasks`, `list_mentor_task_events`, `list_mentor_weekly_reports` accept ACTIVE
+  or COMPLETED placements (still the placement's current Mentor, now also an *active* MENTOR
+  profile). SCHEDULED and CANCELLED stay refused (`placement_not_active`). Every write
+  (task create/edit/cancel/review, report review) stays ACTIVE-only and is unchanged.
+- `unassign_intern_placement_mentor` refuses ACTIVE placements (`active_placement_requires_mentor`,
+  409); removal from SCHEDULED placements is unchanged. HR replaces an active placement's Mentor with
+  `assign_intern_placement_mentor`, a single UPDATE under the placement lock (unchanged).
+
+Backend: `mentor_required` and `active_placement_requires_mentor` mapped; activation-specific wording
+for `mentor_inactive` / `mentor_profile_required` (409). Frontend: Activate disabled with an
+explanation until a Mentor is assigned; no "Remove Mentor" on active placements (replacement only);
+Mentor dashboard shows completed placements' tasks and reports read-only ("Completed — read-only",
+no create, edit, cancel or review controls).
+
+Tests: new `supabase/tests/sql/130_mentor_activation_and_history.test.sql` (activation rules,
+opportunity/selection without Mentor, completed read-only access, isolation between Mentors,
+cancelled/scheduled unreadable, deactivation/demotion, three two-session races); 040, 060 and 120
+updated for the new rules (060 removal now on a scheduled placement). Backend and frontend specs
+added. Local results 2026-10-17 (Node 22): DB harness 528/528; backend 37 files / 748 tests,
+tsc, oxlint (93 pre-existing empty-file warnings), nest build; frontend 11 files / 39 tests,
+eslint, build.
+
+Not done: applying the migration to the linked project (needs owner approval; the backend's new
+messages are harmless before it), and any live or browser verification.
 
 ## Known follow-ups
 

@@ -31,7 +31,10 @@ function sortRank(task: InternTask) {
   return 3;
 }
 
-export default function MentorPlacementTaskManager({ placementId }: { placementId: string }) {
+// readOnly: a completed placement's history. No create, edit, cancel or review
+// control is rendered; the database refuses those writes for any non-active
+// placement as well.
+export default function MentorPlacementTaskManager({ placementId, readOnly = false }: { placementId: string; readOnly?: boolean }) {
   const queryClient = useQueryClient();
   const tasksKey = ['mentor', 'placement-tasks', placementId];
   const eventsKey = ['mentor', 'placement-task-events', placementId];
@@ -65,7 +68,7 @@ export default function MentorPlacementTaskManager({ placementId }: { placementI
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!create.isPending && title.trim()) create.mutate();
+    if (!readOnly && !create.isPending && title.trim()) create.mutate();
   }
 
   const sorted = [...(tasks.data ?? [])].sort((a, b) =>
@@ -76,10 +79,13 @@ export default function MentorPlacementTaskManager({ placementId }: { placementI
       <div>
         <h3 className="font-semibold">Tasks</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Assign work, review what the intern completes, and give feedback. The intern updates progress from their portal.
+          {readOnly
+            ? 'Tasks and their history from this completed placement. They can no longer be changed.'
+            : 'Assign work, review what the intern completes, and give feedback. The intern updates progress from their portal.'}
         </p>
       </div>
 
+      {!readOnly && (
       <form onSubmit={submit} className="grid gap-3 rounded-lg border p-4 md:grid-cols-3">
         <label className="space-y-2 text-sm font-medium md:col-span-3">New task title
           <Input required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} disabled={create.isPending} />
@@ -102,6 +108,7 @@ export default function MentorPlacementTaskManager({ placementId }: { placementI
         </div>
         {create.isError && <p role="alert" className="text-sm text-destructive md:col-span-3">{create.error.message}</p>}
       </form>
+      )}
 
       {tasks.isPending ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Loading tasks…</p>
@@ -111,7 +118,7 @@ export default function MentorPlacementTaskManager({ placementId }: { placementI
           <Button type="button" variant="outline" onClick={() => void tasks.refetch()}><RotateCw className="mr-2 size-4" />Retry</Button>
         </div>
       ) : sorted.length === 0 ? (
-        <p className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground"><ClipboardList className="size-4" />No tasks assigned yet.</p>
+        <p className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground"><ClipboardList className="size-4" />{readOnly ? 'No tasks were assigned during this placement.' : 'No tasks assigned yet.'}</p>
       ) : (
         <ul className="divide-y rounded-lg border">
           {sorted.map((task) => {
@@ -134,9 +141,9 @@ export default function MentorPlacementTaskManager({ placementId }: { placementI
                 {task.mentorFeedback && <p className="rounded-md bg-muted/50 p-2 text-sm"><span className="font-medium">Your feedback:</span> {task.mentorFeedback}</p>}
                 {task.cancellationReason && <p className="text-sm text-muted-foreground">Cancelled: {task.cancellationReason}</p>}
                 <div className="flex flex-wrap gap-2">
-                  {awaitingReview && <Button size="sm" onClick={() => setDialog({ kind: 'review', task })}>Review</Button>}
-                  {open && <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'edit', task })}>Edit</Button>}
-                  {open && <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: 'cancel', task })}>Cancel task</Button>}
+                  {!readOnly && awaitingReview && <Button size="sm" onClick={() => setDialog({ kind: 'review', task })}>Review</Button>}
+                  {!readOnly && open && <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'edit', task })}>Edit</Button>}
+                  {!readOnly && open && <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: 'cancel', task })}>Cancel task</Button>}
                   <Button size="sm" variant="ghost" onClick={() => setHistoryFor(historyFor === task.id ? null : task.id)}>
                     <History className="mr-1 size-4" />{historyFor === task.id ? 'Hide history' : 'History'}
                   </Button>
@@ -154,7 +161,7 @@ export default function MentorPlacementTaskManager({ placementId }: { placementI
         </ul>
       )}
 
-      <MentorTaskDialogs dialog={dialog} onClose={() => setDialog(null)} onSaved={refresh} />
+      {!readOnly && <MentorTaskDialogs dialog={dialog} onClose={() => setDialog(null)} onSaved={refresh} />}
     </section>
   );
 }

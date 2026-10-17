@@ -24,17 +24,21 @@ import {
 const mentorsKey = ['hr', 'mentors'] as const;
 
 // HR assigns, changes or removes the Mentor of an open placement. Only active
-// Mentor accounts are offered; workload counts are information only.
+// Mentor accounts are offered; workload counts are information only. An
+// active placement always keeps a Mentor: it can be changed, not removed (the
+// server enforces this).
 export default function PlacementMentorAssignment({
   applicationId,
   placementId,
   mentorProfileId,
   canChange,
+  canRemove,
 }: {
   applicationId: string;
   placementId: string;
   mentorProfileId: string | null;
   canChange: boolean;
+  canRemove: boolean;
 }) {
   const queryClient = useQueryClient();
   const mentors = useQuery({ queryKey: mentorsKey, queryFn: getHrMentors, retry: false });
@@ -80,12 +84,19 @@ export default function PlacementMentorAssignment({
               {mentorProfileId ? (assignedMentor ? mentorLabel(assignedMentor) : 'A Mentor who is no longer active') : 'No Mentor'}
             </span>
           </p>
-          {canChange && mentorProfileId && (
+          {canChange && canRemove && mentorProfileId && (
             <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { unassign.reset(); setNote(''); setRemoving(true); }}>
               Remove Mentor
             </Button>
           )}
         </div>
+
+        {canChange && !canRemove && mentorProfileId && (
+          <p className="text-sm text-muted-foreground">
+            An active placement must always have a Mentor. To change it, choose a replacement below and select
+            Change Mentor.
+          </p>
+        )}
 
         {!canChange ? (
           <p className="text-sm text-muted-foreground">The Mentor can only be changed while the placement is scheduled or active.</p>
@@ -144,6 +155,7 @@ export default function PlacementMentorAssignment({
               <DialogTitle>Remove the Mentor?</DialogTitle>
               <DialogDescription>
                 The Mentor loses access to this intern and their tasks. Existing tasks stay with the placement.
+                The placement cannot be activated until a Mentor is assigned again.
               </DialogDescription>
             </DialogHeader>
             <label className="block space-y-1.5 text-sm font-medium">

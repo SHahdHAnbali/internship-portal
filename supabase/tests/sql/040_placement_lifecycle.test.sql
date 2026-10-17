@@ -1,16 +1,19 @@
 -- Migration 20261011020000: placement creation, activation (APPLICANT -> INTERN),
 -- cancellation, history, defensive capacity check, concurrency.
+-- Since 20261017000000 activation also requires an eligible assigned Mentor.
 
 INSERT INTO auth.users (id, email) VALUES
  ('00000000-0000-0000-0000-000000000001','hr@x.com'),
  ('00000000-0000-0000-0000-000000000002','a2@x.com'),
  ('00000000-0000-0000-0000-000000000003','a3@x.com'),
- ('00000000-0000-0000-0000-000000000004','a4@x.com');
+ ('00000000-0000-0000-0000-000000000004','a4@x.com'),
+ ('00000000-0000-0000-0000-000000000005','mentor@x.com');
 INSERT INTO public.profiles (id, full_name, email, role) VALUES
  ('00000000-0000-0000-0000-000000000001','HR','hr@x.com','HR'),
  ('00000000-0000-0000-0000-000000000002','A2','a2@x.com','APPLICANT'),
  ('00000000-0000-0000-0000-000000000003','A3','a3@x.com','APPLICANT'),
- ('00000000-0000-0000-0000-000000000004','A4','a4@x.com','APPLICANT');
+ ('00000000-0000-0000-0000-000000000004','A4','a4@x.com','APPLICANT'),
+ ('00000000-0000-0000-0000-000000000005','Mentor','mentor@x.com','MENTOR');
 INSERT INTO public.applicants (id, full_name, email, auth_user_id) VALUES
  ('00000000-0000-0000-0000-0000000000b2','A2','a2@x.com','00000000-0000-0000-0000-000000000002'),
  ('00000000-0000-0000-0000-0000000000b3','A3','a3@x.com','00000000-0000-0000-0000-000000000003'),
@@ -80,6 +83,15 @@ SELECT public.t_check('CA3 two placements for the application: one cancelled, on
   AND (SELECT count(*) FROM public.intern_placements WHERE application_id='00000000-0000-0000-0000-0000000000c3' AND status='SCHEDULED')=1);
 
 -- Activation ---------------------------------------------------------------------------------
+SELECT public.t_expect_error('AC0 activation without a Mentor is refused',
+  $q$SELECT * FROM public.activate_intern_placement('00000000-0000-0000-0000-000000000001',(SELECT id FROM public.intern_placements WHERE application_id='00000000-0000-0000-0000-0000000000c2'))$q$,
+  'mentor_required');
+SELECT public.t_check('AC0 the refused activation changed nothing',
+  (SELECT role FROM public.profiles WHERE id='00000000-0000-0000-0000-000000000002')='APPLICANT'
+  AND (SELECT status FROM public.intern_placements WHERE application_id='00000000-0000-0000-0000-0000000000c2')='SCHEDULED'
+  AND NOT EXISTS (SELECT 1 FROM public.intern_placement_events WHERE event_type='ACTIVATED'));
+SELECT public.t_expect_ok('AC0 HR assigns a Mentor to the scheduled placement',
+  $q$SELECT * FROM public.assign_intern_placement_mentor('00000000-0000-0000-0000-000000000001',(SELECT id FROM public.intern_placements WHERE application_id='00000000-0000-0000-0000-0000000000c2'),'00000000-0000-0000-0000-000000000005')$q$);
 SELECT public.t_expect_ok('AC1 activate: placement ACTIVE and applicant becomes INTERN',
   $q$SELECT * FROM public.activate_intern_placement('00000000-0000-0000-0000-000000000001',(SELECT id FROM public.intern_placements WHERE application_id='00000000-0000-0000-0000-0000000000c2'))$q$);
 SELECT public.t_check('AC1 role transition and ACTIVATED event in the same transaction',
@@ -110,6 +122,8 @@ SELECT public.t_check('AC5 failed activation left role and placement unchanged',
 -- Defensive seat check: never more ACTIVE placements than capacity -------------------------------
 SELECT public.t_expect_ok('SE1 schedule A4''s placement',
   $q$SELECT * FROM public.create_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000c4','Acme',NULL,current_date,current_date+30)$q$);
+SELECT public.t_expect_ok('SE1 assign A4''s Mentor',
+  $q$SELECT * FROM public.assign_intern_placement_mentor('00000000-0000-0000-0000-000000000001',(SELECT id FROM public.intern_placements WHERE application_id='00000000-0000-0000-0000-0000000000c4'),'00000000-0000-0000-0000-000000000005')$q$);
 RESET ROLE;
 UPDATE public.internships SET capacity=1 WHERE id='00000000-0000-0000-0000-0000000000e1';
 SET ROLE service_role;

@@ -119,6 +119,19 @@ describe('Intern placement controller authorization metadata', () => {
     expect(unassign).toHaveBeenCalledWith('verified-hr-id', 'placement-id', 'On leave');
   });
 
+  it('derives the activating HR actor from the verified request (no body is accepted)', async () => {
+    const activate = vi.fn().mockResolvedValue({ id: 'placement-id', status: 'ACTIVE' });
+    const controller = new HrInternPlacementsController(
+      {} as never,
+      { execute: activate } as never,
+      {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+    );
+    expect(() => controller.activate('placement-id', { authUser: undefined } as never)).toThrow(UnauthorizedException);
+    await expect(controller.activate('placement-id', { authUser: { id: 'verified-hr-id', role: 'HR' } } as never))
+      .resolves.toMatchObject({ status: 'ACTIVE' });
+    expect(activate).toHaveBeenCalledWith('verified-hr-id', 'placement-id');
+  });
+
   it('derives the completing HR actor from the verified request', async () => {
     const complete = vi.fn().mockResolvedValue({ id: 'placement-id', status: 'COMPLETED' });
     const controller = new HrInternPlacementsController(

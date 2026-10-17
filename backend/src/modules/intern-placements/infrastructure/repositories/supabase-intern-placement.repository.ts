@@ -6,7 +6,7 @@ import {
 
 import { SupabaseService } from '../../../../infrastructure/database/supabase.service.js';
 import { throwSupabaseRpcHttpException } from '../../../../infrastructure/database/supabase-rpc-error.js';
-import { throwPlacementError } from '../../domain/placement-errors.js';
+import { ACTIVATION_MESSAGES, throwPlacementError } from '../../domain/placement-errors.js';
 import {
   InternPlacementRepository,
   type ApplicationPlacementOverview,
@@ -186,7 +186,7 @@ export class SupabaseInternPlacementRepository
     });
 
     if (error) {
-      throwPlacementError(error);
+      throwPlacementError(error, ACTIVATION_MESSAGES);
     }
 
     return this.toResponse(this.singleRpcRow(data));

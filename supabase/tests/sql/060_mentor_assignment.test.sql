@@ -1,6 +1,8 @@
 -- Migration 20261011040000: Mentor assignment/reassignment/removal by HR,
 -- availability (active Mentors only), open placements only, history, and the
 -- previous Mentor losing access after reassignment.
+-- Since 20261017000000 an ACTIVE placement cannot lose its Mentor without a
+-- replacement; removal is exercised on a SCHEDULED placement.
 
 INSERT INTO auth.users (id, email) VALUES
  ('00000000-0000-0000-0000-000000000001','hr@x.com'),
@@ -19,18 +21,23 @@ INSERT INTO public.profiles (id, full_name, email, role) VALUES
 UPDATE public.profiles SET is_active=false, deactivated_at=now() WHERE id='00000000-0000-0000-0000-000000000004';
 INSERT INTO public.applicants (id, full_name, email, auth_user_id) VALUES
  ('00000000-0000-0000-0000-0000000000b1','Intern','intern@x.com','00000000-0000-0000-0000-000000000005'),
- ('00000000-0000-0000-0000-0000000000b2','Other','other@x.com',NULL);
+ ('00000000-0000-0000-0000-0000000000b2','Other','other@x.com',NULL),
+ ('00000000-0000-0000-0000-0000000000b3','Third','third@x.com',NULL);
 INSERT INTO public.internships (id, title, capacity) VALUES
  ('00000000-0000-0000-0000-0000000000e1','Engineering', 3);
 INSERT INTO public.applications (id, status, internship_id, requested_training, applicant_id) VALUES
  ('00000000-0000-0000-0000-0000000000c1','SELECTED','00000000-0000-0000-0000-0000000000e1',NULL,'00000000-0000-0000-0000-0000000000b1'),
- ('00000000-0000-0000-0000-0000000000c2','SELECTED','00000000-0000-0000-0000-0000000000e1',NULL,'00000000-0000-0000-0000-0000000000b2');
+ ('00000000-0000-0000-0000-0000000000c2','SELECTED','00000000-0000-0000-0000-0000000000e1',NULL,'00000000-0000-0000-0000-0000000000b2'),
+ ('00000000-0000-0000-0000-0000000000c3','SELECTED','00000000-0000-0000-0000-0000000000e1',NULL,'00000000-0000-0000-0000-0000000000b3');
 INSERT INTO public.intern_placements (id, application_id, applicant_id, internship_id, company, start_date, end_date, status) VALUES
  ('00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-0000000000b1',
   '00000000-0000-0000-0000-0000000000e1','Acme', current_date, current_date + 30, 'ACTIVE');
 INSERT INTO public.intern_placements (id, application_id, applicant_id, internship_id, company, start_date, end_date, status, cancelled_at, cancellation_reason) VALUES
  ('00000000-0000-0000-0000-0000000000f2','00000000-0000-0000-0000-0000000000c2','00000000-0000-0000-0000-0000000000b2',
   '00000000-0000-0000-0000-0000000000e1','Acme', current_date, current_date + 30, 'CANCELLED', now(), 'Withdrew');
+INSERT INTO public.intern_placements (id, application_id, applicant_id, internship_id, company, start_date, end_date, status) VALUES
+ ('00000000-0000-0000-0000-0000000000f3','00000000-0000-0000-0000-0000000000c3','00000000-0000-0000-0000-0000000000b3',
+  '00000000-0000-0000-0000-0000000000e1','Acme', current_date + 7, current_date + 37, 'SCHEDULED');
 
 -- Permissions ------------------------------------------------------------------------
 SET ROLE authenticated;
@@ -109,20 +116,34 @@ SELECT public.t_check('RA5 Mentor Two sees the existing task (tasks belong to th
   (SELECT count(*) FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-0000000000f1'))=1);
 
 -- Removal ----------------------------------------------------------------------------------
-SELECT public.t_expect_ok('U1 HR removes the Mentor with a reason',
-  $q$SELECT * FROM public.unassign_intern_placement_mentor('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1','  Mentor on leave ')$q$);
-SELECT public.t_check('U2 placement unassigned and Mentor Two lost access',
-  (SELECT mentor_profile_id IS NULL FROM public.intern_placements WHERE id='00000000-0000-0000-0000-0000000000f1')
-  AND (SELECT count(*) FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000003'))=0);
+SELECT public.t_expect_error('U1 HR cannot remove the Mentor of an active placement without a replacement',
+  $q$SELECT * FROM public.unassign_intern_placement_mentor('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1','  Mentor on leave ')$q$,
+  'active_placement_requires_mentor');
+SELECT public.t_check('U2 the active placement keeps Mentor Two, who keeps access',
+  (SELECT mentor_profile_id FROM public.intern_placements WHERE id='00000000-0000-0000-0000-0000000000f1')='00000000-0000-0000-0000-000000000003'
+  AND (SELECT count(*) FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000003'))=1
+  AND NOT EXISTS (SELECT 1 FROM public.intern_placement_events
+                  WHERE placement_id='00000000-0000-0000-0000-0000000000f1' AND event_type='MENTOR_UNASSIGNED'));
+SELECT public.t_expect_ok('U3 HR assigns Mentor One to the scheduled placement',
+  $q$SELECT * FROM public.assign_intern_placement_mentor('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f3','00000000-0000-0000-0000-000000000002')$q$);
+SELECT public.t_expect_ok('U4 HR removes the Mentor of a scheduled placement with a reason',
+  $q$SELECT * FROM public.unassign_intern_placement_mentor('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f3','  Mentor on leave ')$q$);
+SELECT public.t_check('U5 scheduled placement unassigned and Mentor One lost access',
+  (SELECT mentor_profile_id IS NULL FROM public.intern_placements WHERE id='00000000-0000-0000-0000-0000000000f3')
+  AND (SELECT count(*) FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000002'))=0);
 
 -- History ------------------------------------------------------------------------------------
 SELECT public.t_check('H1 assignment history records actor, from/to and the reason',
   (SELECT array_agg(event_type || ':' || coalesce(details->>'fromMentorName','-') || '>' || coalesce(details->>'toMentorName','-') ORDER BY created_at, event_type)
    FROM public.intern_placement_events WHERE placement_id='00000000-0000-0000-0000-0000000000f1')
-    = ARRAY['MENTOR_ASSIGNED:->Mentor One','MENTOR_ASSIGNED:Mentor One>Mentor Two','MENTOR_UNASSIGNED:Mentor Two>-']
+    = ARRAY['MENTOR_ASSIGNED:->Mentor One','MENTOR_ASSIGNED:Mentor One>Mentor Two']
+  AND (SELECT array_agg(event_type || ':' || coalesce(details->>'fromMentorName','-') || '>' || coalesce(details->>'toMentorName','-') ORDER BY created_at, event_type)
+   FROM public.intern_placement_events WHERE placement_id='00000000-0000-0000-0000-0000000000f3')
+    = ARRAY['MENTOR_ASSIGNED:->Mentor One','MENTOR_UNASSIGNED:Mentor One>-']
   AND (SELECT bool_and(actor_profile_id='00000000-0000-0000-0000-000000000001') FROM public.intern_placement_events
-       WHERE placement_id='00000000-0000-0000-0000-0000000000f1')
-  AND EXISTS (SELECT 1 FROM public.intern_placement_events WHERE event_type='MENTOR_UNASSIGNED' AND note='Mentor on leave'));
+       WHERE placement_id IN ('00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000f3'))
+  AND EXISTS (SELECT 1 FROM public.intern_placement_events WHERE event_type='MENTOR_UNASSIGNED' AND note='Mentor on leave'
+              AND placement_id='00000000-0000-0000-0000-0000000000f3'));
 RESET ROLE;
 
 -- Concurrency: an admin demotes a Mentor while HR assigns them ------------------------------
@@ -148,6 +169,6 @@ INSERT INTO public.t_results (label, ok, detail)
 SELECT 'CC3 the assignment is refused after the demotion commits', msg LIKE '%mentor_profile_required%', msg
 FROM (SELECT dblink_error_message('hr_session') AS msg) AS e;
 SELECT dblink_disconnect('hr_session');
-SELECT public.t_check('CC4 the placement has no Mentor and the former Mentor is HR',
-  (SELECT mentor_profile_id IS NULL FROM public.intern_placements WHERE id='00000000-0000-0000-0000-0000000000f1')
+SELECT public.t_check('CC4 the placement keeps Mentor Two and the former Mentor is HR',
+  (SELECT mentor_profile_id FROM public.intern_placements WHERE id='00000000-0000-0000-0000-0000000000f1')='00000000-0000-0000-0000-000000000003'
   AND (SELECT role FROM public.profiles WHERE id='00000000-0000-0000-0000-000000000002')='HR');

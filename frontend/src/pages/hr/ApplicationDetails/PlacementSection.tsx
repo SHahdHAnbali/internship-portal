@@ -160,9 +160,24 @@ function PlacementContent({
               <Button type="button" variant="outline" onClick={() => openDialog('complete')}>Complete placement</Button>
             )}
             {placement.status === 'SCHEDULED' && (
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={() => openDialog('activate')}>Activate placement</Button>
-                <Button type="button" variant="outline" onClick={() => openDialog('cancel')}>Cancel placement</Button>
+              <div className="space-y-2 sm:max-w-xs sm:text-right">
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <Button
+                    type="button"
+                    onClick={() => openDialog('activate')}
+                    disabled={!placement.mentorProfileId}
+                    aria-describedby={placement.mentorProfileId ? undefined : 'activation-needs-mentor'}
+                  >
+                    Activate placement
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => openDialog('cancel')}>Cancel placement</Button>
+                </div>
+                {/* The server refuses activation without an eligible Mentor; this only explains it. */}
+                {!placement.mentorProfileId && (
+                  <p id="activation-needs-mentor" className="text-sm text-muted-foreground">
+                    Assign a Mentor below before activating this placement.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -173,6 +188,7 @@ function PlacementContent({
             placementId={placement.id}
             mentorProfileId={placement.mentorProfileId}
             canChange={placement.status === 'SCHEDULED' || placement.status === 'ACTIVE'}
+            canRemove={placement.status === 'SCHEDULED'}
           />
         </>
       ) : overview.selectionReleased ? (
@@ -212,7 +228,7 @@ function PlacementContent({
               {activate.isError && <ErrorMessage message={activate.error.message} />}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setDialog(null)} disabled={busy}>Back</Button>
-                <Button type="button" onClick={() => activate.mutate(placement.id)} disabled={busy}>
+                <Button type="button" onClick={() => activate.mutate(placement.id)} disabled={busy || !placement.mentorProfileId}>
                   {activate.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
                   Confirm activation
                 </Button>

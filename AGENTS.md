@@ -1060,6 +1060,14 @@ The intended relationship is:
 - The Mentor relationship is placement-based through `intern_placements.mentor_profile_id` where present. Do not replace it with an unrelated global user-to-Mentor relationship.
 - HR alone manages placement-to-Mentor assignment/reassignment. Mentors must not assign themselves or access another Mentor's placements.
 - Verify reassignment behavior so a previously assigned Mentor loses access that depends on the old assignment.
+- Owner-approved rules (2026-10-17), implemented by migration
+  `20261017000000_mentor_activation_history_and_reassignment.sql` (written and verified locally;
+  not applied to the linked project until the owner approves): a placement can be activated only
+  with an assigned, active Mentor (`mentor_required`); an ACTIVE placement's Mentor can be replaced
+  but not removed (`active_placement_requires_mentor`); after completion the assigned Mentor may read
+  the placement's tasks, task history and weekly reports but not change them. Opening a training
+  opportunity and selecting an applicant never require a Mentor. The HR Intern Progress page stays a
+  monitoring page.
 
 Do not add skill matching, capacity balancing, automatic Mentor assignment, or other unrequested rules.
 
@@ -1094,7 +1102,7 @@ The following migration files have been reported as applied to the linked Supaba
 
 The latest migration was reported to add `mentor_profile_id` to `intern_placements` and support Mentor assignment/task authorization. Treat that as historical context, not proof of present correctness. Verify the actual migration, RPCs, grants, backend adapters, frontend services, and tests.
 
-Earlier read-only checks reported profile counts of APPLICANT: 6, HR: 1, INTERN: 1, MENTOR: 0. These counts are time-sensitive and must not be treated as current without a new read-only check. If there are no Mentor profiles, an empty Mentor selector may be expected rather than a UI bug. Do not create a Mentor account or change roles just to populate the selector.
+A read-only check on 2026-10-17 reported active profiles ADMIN: 1, HR: 1, MENTOR: 1, INTERN: 1, APPLICANT: 8 (earlier checks had MENTOR: 0). These counts are time-sensitive and must not be treated as current without a new read-only check. If there are no Mentor profiles, an empty Mentor selector may be expected rather than a UI bug. Do not create a Mentor account or change roles just to populate the selector.
 
 Earlier testing was reported as 17 backend test files / 99 tests passing, backend build and lint passing (with empty-file warnings), frontend build passing, and 11 unrelated pre-existing full-frontend-lint errors. These are historical results. Report them as current only after rerunning the relevant checks and recording the real output. Do not claim integration or live end-to-end verification unless it actually occurred.
 

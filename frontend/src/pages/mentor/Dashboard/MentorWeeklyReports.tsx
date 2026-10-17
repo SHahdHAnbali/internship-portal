@@ -17,7 +17,8 @@ const SECTIONS: { key: 'summary' | 'learnings' | 'challenges' | 'nextWeekPlan'; 
 ];
 
 // Submitted weekly reports of one placement (drafts stay private to the intern).
-export default function MentorWeeklyReports({ placementId }: { placementId: string }) {
+// readOnly: a completed placement's reports, without review controls.
+export default function MentorWeeklyReports({ placementId, readOnly = false }: { placementId: string; readOnly?: boolean }) {
   const reports = useQuery({
     queryKey: ['mentor', 'weekly-reports', placementId],
     queryFn: () => getMentorWeeklyReports(placementId),
@@ -34,7 +35,7 @@ export default function MentorWeeklyReports({ placementId }: { placementId: stri
         <p role="alert" className="text-sm text-destructive">{reports.error.message}</p>
       ) : reports.data.length === 0 ? (
         <p className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          <FileText className="size-4" />The intern has not submitted a weekly report yet.
+          <FileText className="size-4" />{readOnly ? 'No weekly reports were submitted during this placement.' : 'The intern has not submitted a weekly report yet.'}
         </p>
       ) : (
         <ul className="divide-y rounded-lg border">
@@ -45,11 +46,11 @@ export default function MentorWeeklyReports({ placementId }: { placementId: stri
                 <div className="flex items-center gap-2">
                   <Badge variant={report.status === 'SUBMITTED' ? 'default' : 'outline'}>{REPORT_STATUS_LABELS[report.status]}</Badge>
                   <Button size="sm" variant="ghost" onClick={() => setOpenId(openId === report.id ? null : report.id)}>
-                    {openId === report.id ? 'Hide' : report.status === 'SUBMITTED' ? 'Read & review' : 'Read'}
+                    {openId === report.id ? 'Hide' : report.status === 'SUBMITTED' && !readOnly ? 'Read & review' : 'Read'}
                   </Button>
                 </div>
               </div>
-              {openId === report.id && <ReportDetail report={report} placementId={placementId} />}
+              {openId === report.id && <ReportDetail report={report} placementId={placementId} readOnly={readOnly} />}
             </li>
           ))}
         </ul>
@@ -58,7 +59,7 @@ export default function MentorWeeklyReports({ placementId }: { placementId: stri
   );
 }
 
-function ReportDetail({ report, placementId }: { report: WeeklyReport; placementId: string }) {
+function ReportDetail({ report, placementId, readOnly }: { report: WeeklyReport; placementId: string; readOnly: boolean }) {
   const queryClient = useQueryClient();
   const [feedback, setFeedback] = useState('');
   const [returning, setReturning] = useState(false);
@@ -76,7 +77,7 @@ function ReportDetail({ report, placementId }: { report: WeeklyReport; placement
   function decide(decision: 'ACCEPT' | 'RETURN') {
     setReturning(decision === 'RETURN');
     if (decision === 'RETURN' && feedback.trim() === '') return;
-    if (!review.isPending) review.mutate(decision);
+    if (!readOnly && !review.isPending) review.mutate(decision);
   }
 
   return (
@@ -88,7 +89,7 @@ function ReportDetail({ report, placementId }: { report: WeeklyReport; placement
         </div>
       ))}
       {report.mentorFeedback && <p className="rounded-md bg-muted/50 p-2"><span className="font-medium">Your feedback:</span> {report.mentorFeedback}</p>}
-      {report.status === 'SUBMITTED' && (
+      {report.status === 'SUBMITTED' && !readOnly && (
         <div className="space-y-2">
           <label className="block space-y-1.5 font-medium">Feedback
             <span className="font-normal text-muted-foreground"> (required when returning)</span>

@@ -38,14 +38,26 @@ const MESSAGES: Record<string, () => Error> = {
   mentor_inactive: () => new ConflictException('This Mentor’s account is deactivated, so they cannot be assigned.'),
   mentor_unchanged: () => new ConflictException('This Mentor is already assigned to the placement.'),
   mentor_not_assigned: () => new ConflictException('This placement has no Mentor to remove.'),
+  mentor_required: () => new ConflictException('Assign a Mentor to this placement before activating it.'),
+  active_placement_requires_mentor: () => new ConflictException('An active placement must always have a Mentor. Choose a replacement Mentor and use Change Mentor instead.'),
   placement_not_assignable: () => new ConflictException('Only a scheduled or active placement can have its Mentor changed.'),
   note_too_long: () => new BadRequestException('The note is too long.'),
 };
 
+// Activation refers to the Mentor already assigned to the placement, so the
+// assignment wording ("cannot be assigned") would mislead HR there.
+export const ACTIVATION_MESSAGES: Record<string, () => Error> = {
+  mentor_profile_required: () => new ConflictException('The assigned Mentor no longer has a Mentor account. Assign an active Mentor before activating the placement.'),
+  mentor_inactive: () => new ConflictException('The assigned Mentor’s account is deactivated. Assign an active Mentor before activating the placement.'),
+};
+
 // Maps placement database-function errors to clear HTTP errors without
 // exposing database text.
-export function throwPlacementError(error: { code?: string; message?: string }): never {
-  const build = error.message ? MESSAGES[error.message] : undefined;
+export function throwPlacementError(
+  error: { code?: string; message?: string },
+  overrides: Record<string, () => Error> = {},
+): never {
+  const build = error.message ? overrides[error.message] ?? MESSAGES[error.message] : undefined;
   if (build) {
     throw build();
   }
