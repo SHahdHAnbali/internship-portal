@@ -33,7 +33,7 @@ PostgreSQL binaries (`PG_BIN` if not on PATH).
 | 20261013000000_withdraw_task_submission | `withdraw_my_intern_task_submission` + `intern_task_withdrawal_open`; `WITHDRAWN` task event | Applied + verified 2026-10-13 (owner-authorized) |
 | 20261011080000_revoke_browser_truncate | Revokes TRUNCATE/TRIGGER/REFERENCES from anon/authenticated on the six pre-history base tables | Applied + verified 2026-10-11 |
 | 20261014000000_capacity_selection_and_intake | Opportunity approval (`selection_status`), cumulative seats with explicit final selection release, `portal_settings` application-intake switch (ADMIN), intake enforcement on draft creation and review submission; replaces `create/update_training_opportunity` | Applied + verified 2026-10-14 (owner-authorized; see "Feature 2026-10-14") |
-| 20261017000000_mentor_activation_history_and_reassignment | Activation requires an eligible assigned Mentor (`mentor_required`); the assigned, active Mentor reads a COMPLETED placement's tasks, task history and reports (read-only); an ACTIVE placement's Mentor can be replaced but not removed (`active_placement_requires_mentor`) | **Written + locally verified 2026-10-17; NOT applied to the linked project** (dry run lists only this file) |
+| 20261017000000_mentor_activation_history_and_reassignment | Activation requires an eligible assigned Mentor (`mentor_required`); the assigned, active Mentor reads a COMPLETED placement's tasks, task history and reports (read-only); an ACTIVE placement's Mentor can be replaced but not removed (`active_placement_requires_mentor`) | Applied + verified 2026-10-17 (owner-authorized; see "Feature 2026-10-17") |
 
 ## Features
 
@@ -532,8 +532,18 @@ added. Local results 2026-10-17 (Node 22): DB harness 528/528; backend 37 files 
 tsc, oxlint (93 pre-existing empty-file warnings), nest build; frontend 11 files / 39 tests,
 eslint, build.
 
-Not done: applying the migration to the linked project (needs owner approval; the backend's new
-messages are harmless before it), and any live or browser verification.
+Applied 2026-10-17 with the owner's approval: `supabase db push --linked` applied only
+`20261017000000_mentor_activation_history_and_reassignment.sql` (exit 0). Read-only verification
+afterwards: 19 local and 19 remote migration versions, none pending and none remote-only; the five
+target functions each have one definition whose body matches the reviewed post-migration build, with
+signatures, return types, volatility, SECURITY INVOKER, `search_path`, owner and service_role-only
+execution as expected; no other change to functions, tables, indexes, triggers, RLS, table privileges
+or policies; aggregate placement and Mentor counts unchanged (1 ACTIVE placement with an active
+Mentor, 0 SCHEDULED placements).
+
+Not verified live: the functions were not invoked on the live database (their behaviour rests on the
+local tests and the matching bodies), no browser or end-to-end test was run, and whether the push ran
+the file in a single transaction was not checked.
 
 ## Known follow-ups
 

@@ -1061,8 +1061,8 @@ The intended relationship is:
 - HR alone manages placement-to-Mentor assignment/reassignment. Mentors must not assign themselves or access another Mentor's placements.
 - Verify reassignment behavior so a previously assigned Mentor loses access that depends on the old assignment.
 - Owner-approved rules (2026-10-17), implemented by migration
-  `20261017000000_mentor_activation_history_and_reassignment.sql` (written and verified locally;
-  not applied to the linked project until the owner approves): a placement can be activated only
+  `20261017000000_mentor_activation_history_and_reassignment.sql` (applied to the linked project
+  and verified read-only on 2026-10-17; not yet exercised through the browser): a placement can be activated only
   with an assigned, active Mentor (`mentor_required`); an ACTIVE placement's Mentor can be replaced
   but not removed (`active_placement_requires_mentor`); after completion the assigned Mentor may read
   the placement's tasks, task history and weekly reports but not change them. Opening a training
