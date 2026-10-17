@@ -34,6 +34,7 @@ PostgreSQL binaries (`PG_BIN` if not on PATH).
 | 20261011080000_revoke_browser_truncate | Revokes TRUNCATE/TRIGGER/REFERENCES from anon/authenticated on the six pre-history base tables | Applied + verified 2026-10-11 |
 | 20261014000000_capacity_selection_and_intake | Opportunity approval (`selection_status`), cumulative seats with explicit final selection release, `portal_settings` application-intake switch (ADMIN), intake enforcement on draft creation and review submission; replaces `create/update_training_opportunity` | Applied + verified 2026-10-14 (owner-authorized; see "Feature 2026-10-14") |
 | 20261017000000_mentor_activation_history_and_reassignment | Activation requires an eligible assigned Mentor (`mentor_required`); the assigned, active Mentor reads a COMPLETED placement's tasks, task history and reports (read-only); an ACTIVE placement's Mentor can be replaced but not removed (`active_placement_requires_mentor`) | Applied + verified 2026-10-17 (owner-authorized; see "Feature 2026-10-17") |
+| 20261017010000_backfill_applicant_profile_data | One-time, fill-only backfill of `applicants.profile_data` (only where NULL) from the applicant's latest submitted, non-DRAFT application; no schema, function or grant change | Applied + verified 2026-10-17 (owner-authorized; see "Fix 2026-10-17") |
 
 ## Features
 
@@ -544,6 +545,41 @@ Mentor, 0 SCHEDULED placements).
 Not verified live: the functions were not invoked on the live database (their behaviour rests on the
 local tests and the matching bodies), no browser or end-to-end test was run, and whether the push ran
 the file in a single transaction was not checked.
+
+## Fix 2026-10-17: empty applicant/intern profiles from legacy submissions
+
+Cause (read-only audit): applications submitted through the pre-repository legacy flow kept the
+applicant-reviewed data in `applications.extracted_data` but never wrote `applicants.profile_data`,
+so the applicant and intern profile pages showed no CV sections. The current submission function
+(`submit_application_review_v2`) already writes `profile_data` and was not changed.
+
+Migration `20261017010000_backfill_applicant_profile_data.sql` (owner-approved 2026-10-17):
+- Updates `applicants.profile_data` only where it is SQL NULL; any non-NULL value (even `{}`) is
+  left untouched, and the condition is re-checked by the UPDATE itself.
+- Source: the applicant's own applications (`applications.applicant_id`) that are non-DRAFT, have
+  `submitted_at`, and have an `extracted_data` JSON object with at least one correctly typed section;
+  the latest by `submitted_at DESC, created_at DESC, id DESC`.
+- Copies only the seven sections written by the current flow (summary, education, experience,
+  skills, languages, certifications, links); a wrongly typed section becomes null. Safe to re-run.
+
+Tests: `supabase/tests/sql/140_backfill_applicant_profile_data.test.sql` runs the real migration file
+against fixtures (fill, preservation, DRAFT/invalid/no-`submitted_at` sources, latest submission,
+`created_at` and id tie-breaks, no cross-applicant data, unrelated tables unchanged, re-run, browser
+privileges). Local results 2026-10-17: targeted 20/20, full DB harness 548/548. A mutation check (the
+`created_at` tie-break removed from a copy of the migration) made the tie-break test fail as intended.
+
+Applied 2026-10-17 with the owner's approval after a read-only preflight and a dry run listing only
+this file: `supabase db push --linked` (exit 0). Read-only verification afterwards: 20 local and 20
+remote migration versions, none pending and none remote-only; 9 applicants before and after; the 3
+previously NULL profiles (2 APPLICANT, 1 INTERN) are filled with the seven-key shape and none remain
+NULL; aggregate before/after fingerprints show the 6 previously filled profiles, the other applicant
+columns, `applications`, `profiles` (roles included) and the `auth.users` ids unchanged. Browser check
+(reported by the owner): the applicant and intern profile pages show the restored data correctly.
+
+Caveats: treating legacy non-DRAFT `extracted_data` as applicant-reviewed relies on the documented
+meaning of that column (the legacy code itself is not in the repository); the CLI did not display the
+migration's count notice (the count was verified separately); the `auth.users` fingerprint covered ids
+only; which rows were filled is not stored, so reverting would require a separately reviewed migration.
 
 ## Known follow-ups
 
