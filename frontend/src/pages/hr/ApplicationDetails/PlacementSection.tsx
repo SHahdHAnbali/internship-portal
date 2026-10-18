@@ -251,8 +251,8 @@ function PlacementContent({
                   {endsEarly
                     ? `The planned end date is ${placement.endDate}. Ending now requires a reason.`
                     : 'The internship has reached its planned end date.'}
-                  {' '}The intern keeps read-only access to their tasks and reports, and the Mentor can no longer
-                  change them. Open tasks and reports awaiting review must be closed first. This cannot be undone.
+                  {' '}The intern keeps read-only access to their weekly reports, and the Mentor can no longer
+                  change them. Reports awaiting review must be reviewed first. This cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               <label className="block space-y-1.5 text-sm font-medium">

@@ -122,7 +122,7 @@ describe('SupabaseInternPlacementRepository RPC adapter', () => {
   });
 
   it.each([
-    ['placement_has_open_tasks', 409, 'The intern still has open or unreviewed tasks. Ask the Mentor to review or cancel them first.'],
+    ['placement_has_open_tasks', 409, 'This placement still has open tasks from the retired task feature, so it cannot be completed until the pending database update is applied.'],
     ['placement_has_pending_reports', 409, 'A weekly report is waiting for the Mentor’s review. Ask the Mentor to review it first.'],
     ['early_end_reason_required', 400, 'Give a reason for ending the placement before its end date.'],
     ['placement_not_completable', 409, 'Only an active placement can be completed.'],

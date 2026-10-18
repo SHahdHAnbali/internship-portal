@@ -17,10 +17,11 @@ and portal settings.
   internship's requirements (HR makes every decision), training planning (approval,
   capacity, selection release), placements (create, activate, cancel, complete),
   Mentor assignment and an intern progress overview.
-- **Mentors:** tasks for interns on their assigned placements (create, edit, cancel,
-  review) and weekly report reviews.
-- **Interns:** dashboard, tasks (start, complete, withdraw a submission before the due
-  date), weekly reports and a read-only profile.
+- **Mentors:** their assigned placements and weekly report reviews.
+- **Interns:** dashboard, weekly reports and a read-only profile.
+- The former intern task feature has been removed from the portal (2026-10-18). Its
+  database tables and history are kept as an archive until a separate migration
+  retires the remaining task database functions.
 - **Admins:** staff account creation, role changes, deactivation, an audit trail, and
   an application intake switch that opens or closes new applications.
 

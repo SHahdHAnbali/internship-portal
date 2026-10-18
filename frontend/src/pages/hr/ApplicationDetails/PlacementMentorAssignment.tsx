@@ -73,7 +73,7 @@ export default function PlacementMentorAssignment({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg"><UserRound className="size-5 text-primary" />Placement Mentor</CardTitle>
         <CardDescription>
-          The Mentor supervises this intern and manages their tasks. Changing the Mentor removes the previous
+          The Mentor supervises this intern and reviews their weekly reports. Changing the Mentor removes the previous
           Mentor’s access immediately.
         </CardDescription>
       </CardHeader>
@@ -154,7 +154,7 @@ export default function PlacementMentorAssignment({
             <DialogHeader>
               <DialogTitle>Remove the Mentor?</DialogTitle>
               <DialogDescription>
-                The Mentor loses access to this intern and their tasks. Existing tasks stay with the placement.
+                The Mentor loses access to this intern and their weekly reports. Existing reports stay with the placement.
                 The placement cannot be activated until a Mentor is assigned again.
               </DialogDescription>
             </DialogHeader>

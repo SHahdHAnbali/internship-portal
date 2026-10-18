@@ -16,13 +16,13 @@ export interface InternProgressResponse {
   status: 'SCHEDULED' | 'ACTIVE' | 'COMPLETED';
   mentorName: string | null;
   mentorActive: boolean | null;
-  tasks: { total: number; open: number; overdue: number; awaitingReview: number; accepted: number };
   reports: { expected: number; submitted: number; accepted: number; returned: number; lastWeek: string | null };
   lastActivityAt: string;
 }
 
+// Until the task retirement migration is applied the function also returns
+// tasks_* counts; they are no longer read, so rows with or without them pass.
 const COUNTS = [
-  'tasks_total', 'tasks_open', 'tasks_overdue', 'tasks_awaiting_review', 'tasks_accepted',
   'reports_expected', 'reports_submitted', 'reports_accepted', 'reports_returned',
 ] as const;
 
@@ -43,7 +43,7 @@ type ProgressRow = Record<(typeof COUNTS)[number], number> & {
   last_activity_at: string;
 };
 
-// HR follow-up of placements: counts only, no task or report content.
+// HR follow-up of placements: counts only, no report content.
 @Injectable()
 export class InternProgressService {
   constructor(private readonly supabase: SupabaseService) {}
@@ -69,13 +69,6 @@ export class InternProgressService {
       status: row.status,
       mentorName: row.mentor_name,
       mentorActive: row.mentor_active,
-      tasks: {
-        total: row.tasks_total,
-        open: row.tasks_open,
-        overdue: row.tasks_overdue,
-        awaitingReview: row.tasks_awaiting_review,
-        accepted: row.tasks_accepted,
-      },
       reports: {
         expected: row.reports_expected,
         submitted: row.reports_submitted,

@@ -5,7 +5,6 @@ import {
   LogOut,
   Menu,
   UserRound,
-  ListTodo,
   X,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -17,7 +16,6 @@ import { useAuth } from '@/features/auth/auth-context';
 const navigation = [
   { label: 'Dashboard', to: '/intern/dashboard', icon: LayoutDashboard },
   { label: 'My Internship', to: '/intern/my-internship', icon: BriefcaseBusiness },
-  { label: 'Assigned Tasks', to: '/intern/tasks', icon: ListTodo },
   { label: 'Weekly Reports', to: '/intern/training-reports', icon: FileText },
   { label: 'My Profile', to: '/intern/profile', icon: UserRound },
 ];

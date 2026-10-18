@@ -35,6 +35,8 @@ PostgreSQL binaries (`PG_BIN` if not on PATH).
 | 20261014000000_capacity_selection_and_intake | Opportunity approval (`selection_status`), cumulative seats with explicit final selection release, `portal_settings` application-intake switch (ADMIN), intake enforcement on draft creation and review submission; replaces `create/update_training_opportunity` | Applied + verified 2026-10-14 (owner-authorized; see "Feature 2026-10-14") |
 | 20261017000000_mentor_activation_history_and_reassignment | Activation requires an eligible assigned Mentor (`mentor_required`); the assigned, active Mentor reads a COMPLETED placement's tasks, task history and reports (read-only); an ACTIVE placement's Mentor can be replaced but not removed (`active_placement_requires_mentor`) | Applied + verified 2026-10-17 (owner-authorized; see "Feature 2026-10-17") |
 | 20261017010000_backfill_applicant_profile_data | One-time, fill-only backfill of `applicants.profile_data` (only where NULL) from the applicant's latest submitted, non-DRAFT application; no schema, function or grant change | Applied + verified 2026-10-17 (owner-authorized; see "Fix 2026-10-17") |
+| 20261017020000_profile_password_setup | `profiles.password_set_at` (nullable) and service_role-only `mark_my_password_set(uuid)` for the required first-time password setup | Applied + verified (owner-authorized) |
+| 20261018000000_retire_intern_task_workflows | Drops the 13 task-only functions; rebuilds `list_my_mentor_placements` and `list_hr_intern_progress` without task columns (HR last activity from the placement row and weekly-report submissions/reviews only); `complete_intern_placement` no longer checks tasks; `intern_tasks` / `intern_task_events` kept with every row as a read-only archive (service_role SELECT only); keeps `intern_task_clean_text` | Applied + verified 2026-10-18 (owner-authorized; see "Feature 2026-10-18") |
 
 ## Features
 
@@ -205,7 +207,10 @@ live 401 checks for the Mentor routes.
 Not verified live: no Mentor account exists yet (0 MENTOR profiles), so assignment has not been run
 against real data; needs an admin to create a Mentor first.
 
-### 7. Mentor dashboard and task management — COMPLETE (2026-10-11)
+### 7. Mentor dashboard and task management — COMPLETE (2026-10-11); task part RETIRED 2026-10-18
+
+Superseded: the task workflows were removed from the portal on 2026-10-18 (see "Feature 2026-10-18").
+The Mentor dashboard keeps the placement list and weekly-report review.
 
 - Reused: `intern_tasks`, Mentor-scoped RPCs and routes, the Mentor workspace layout.
 - Task lifecycle: ASSIGNED → IN_PROGRESS → COMPLETED (intern). A COMPLETED task awaits the Mentor:
@@ -234,7 +239,10 @@ DEFINER, task history RLS on with no browser grants, 12 migrations); live 401 ch
 
 Not verified live: no Mentor account and no tasks exist yet.
 
-### 8. Intern dashboard, tasks, weekly reports — COMPLETE (2026-10-11)
+### 8. Intern dashboard, tasks, weekly reports — COMPLETE (2026-10-11); tasks RETIRED 2026-10-18
+
+Superseded for tasks: the intern Tasks page and dashboard card were removed on 2026-10-18 (see
+"Feature 2026-10-18"). Weekly reports are unchanged.
 
 - Removed the intern "preview" mode (`features/intern/dev-preview.ts`): it bypassed the INTERN route
   guard in development and showed fictional placement data. Placeholder Training Reports and
@@ -401,7 +409,9 @@ Mentor/Intern/report/progress chain.
 - Results: frontend tests 7/7, tsc -b exit 0, eslint exit 0, build OK; backend 34 files / 671 tests,
   tsc, oxlint exit 0. Not yet re-checked in the browser with the HR account.
 
-## Feature 2026-10-13: intern withdraws a task submission
+## Feature 2026-10-13: intern withdraws a task submission (RETIRED 2026-10-18)
+
+Superseded: withdrawal was removed with the task feature (see "Feature 2026-10-18").
 
 Rules (owner-approved 2026-10-13): only the intern of the task's ACTIVE placement; only while the
 submission awaits review (status COMPLETED, `review_status` NULL); only if the task has a due date;
@@ -580,6 +590,55 @@ Caveats: treating legacy non-DRAFT `extracted_data` as applicant-reviewed relies
 meaning of that column (the legacy code itself is not in the repository); the CLI did not display the
 migration's count notice (the count was verified separately); the `auth.users` fingerprint covered ids
 only; which rows were filled is not stored, so reverting would require a separately reviewed migration.
+
+## Feature 2026-10-18: intern task workflows retired
+
+Owner-approved plan (decision D6): remove tasks from every role's screens and workflows, keep the
+task data as an archive, keep weekly reports working.
+
+**Batch 1 (application code) — DONE locally, not committed.**
+- Backend: `modules/intern-tasks` deleted. Weekly reports moved unchanged to `modules/weekly-reports`
+  (same five routes, DTOs, guards and database functions; own error mapping; the
+  `placement_not_active` and `invalid_review_decision` messages no longer mention tasks).
+  `GET /mentor/placements` moved to `modules/mentors` (same URL and guards). The nine task routes
+  now return 404. Mentor placement and HR progress responses no longer contain task fields; their
+  parsers accept database rows with or without the old task columns, so the backend works before
+  and after the migration below.
+- Frontend: Tasks page, hook, services, labels and the Mentor task manager/dialogs deleted; task
+  navigation, dashboard cards/counts and the HR progress Tasks column removed; task wording removed
+  from HR placement dialogs and Roles & Permissions.
+- Checks run 2026-10-18 (local): backend tsc exit 0, vitest 37 files / 747 tests passed, oxlint
+  exit 0 (88 pre-existing empty-file warnings); frontend tsc exit 0, vitest 13 files / 84 tests
+  passed, eslint exit 0. No browser test yet.
+
+**Batch 2 (database) — APPLIED + VERIFIED 2026-10-18 (owner-authorized).**
+- Migration `20261018000000_retire_intern_task_workflows.sql` (see the migrations table). It
+  contains no DML on the task tables. Preflight and postflight checks make it fail instead of
+  continuing if the task tables or `intern_task_clean_text` are missing, if any public function
+  still references the task tables, or if any application role keeps a write privilege on them
+  (checked with `has_table_privilege` / `has_any_column_privilege` after the REVOKE, because REVOKE
+  only removes grants made by the executing role).
+- SQL tests: `070` and `110` (task-only) removed; `060`, `090`, `100`, `130` ported to weekly
+  reports; new `160` with a seed (`160_…before-20261018000000.sql`, run by `run.sh` just before
+  that migration) that creates task history with the old functions, then proves every task row and
+  event survived unchanged, the archive is SELECT-only for service_role, the retired functions are
+  gone, weekly reports still work, HR last activity ignores task events, and completion is no
+  longer blocked by open tasks while the pending-report block stays.
+- `npm run test:db` 2026-10-18 (throwaway local PostgreSQL): 491 passed, 0 failed.
+- Read-only live checks before applying (2026-10-18): archive 1 task (COMPLETED, reviewed) and 6
+  events; 0 tasks blocking completion; tables owned by `postgres`; service_role still had write
+  grants (all on `intern_tasks`; INSERT/REFERENCES/TRIGGER/MAINTAIN on `intern_task_events`) from
+  Supabase default privileges; all 13 functions present with the expected signatures and no
+  dependents; live bodies of the three rebuilt and the weekly-report functions identical to the
+  repository.
+- Applied 2026-10-18 with `supabase db push --linked` after a dry run listing only this migration
+  (exit 0). Read-only verification afterwards: migration history ends at `20261018000000`
+  (22 versions); the 13 functions are gone; the rebuilt functions match the migration and return no
+  task columns; completion keeps the HR, ACTIVE, early-end, pending-report and event rules without
+  the task guard; `intern_task_clean_text` and the weekly-report functions are unchanged; archive
+  rows unchanged (1 / 6); service_role has SELECT only on both tables; anon/authenticated/PUBLIC
+  have no access.
+- Not verified: browser or end-to-end use of the portal against the migrated database.
 
 ## Known follow-ups
 

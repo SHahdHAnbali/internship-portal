@@ -34,7 +34,8 @@ import {
   InternPlacementsModule,
 } from './modules/intern-placements/intern-placements.module.js';
 
-import { InternTasksModule } from './modules/intern-tasks/intern-tasks.module.js';
+import { MentorsModule } from './modules/mentors/mentors.module.js';
+import { WeeklyReportsModule } from './modules/weekly-reports/weekly-reports.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { AccountModule } from './modules/account/account.module.js';
 
@@ -62,7 +63,9 @@ import { AccountModule } from './modules/account/account.module.js';
 
     InternPlacementsModule,
 
-    InternTasksModule,
+    MentorsModule,
+
+    WeeklyReportsModule,
 
     AdminModule,
 

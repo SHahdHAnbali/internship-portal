@@ -11,8 +11,7 @@ import { InternshipsController } from '../../modules/internships/presentation/co
 import { InternshipRequirementsController } from '../../modules/internships/presentation/controllers/internship-requirements.controller.js';
 import { HrInternPlacementsController } from '../../modules/intern-placements/presentation/controllers/hr-intern-placements.controller.js';
 import { InternPlacementController } from '../../modules/intern-placements/presentation/controllers/intern-placement.controller.js';
-import { InternTasksController } from '../../modules/intern-tasks/presentation/controllers/intern-tasks.controller.js';
-import { MentorInternTasksController } from '../../modules/intern-tasks/presentation/controllers/mentor-intern-tasks.controller.js';
+import { MentorPlacementsController } from '../../modules/mentors/presentation/controllers/mentors.controller.js';
 
 import { ExportApplicationsUseCase, ListApplicationsUseCase } from '../../modules/applications/application/use-cases/list-applications.use-case.js';
 import { GetApplicationCvUrlUseCase } from '../../modules/applications/application/use-cases/get-application-cv-url.use-case.js';
@@ -35,13 +34,11 @@ import { TrainingPlanningController } from '../../modules/internships/presentati
 import { InternshipRequirementsService } from '../../modules/internships/application/services/internship-requirements.service.js';
 import { CreateInternPlacementUseCase } from '../../modules/intern-placements/application/use-cases/create-intern-placement.use-case.js';
 import { ActivateInternPlacementUseCase } from '../../modules/intern-placements/application/use-cases/activate-intern-placement.use-case.js';
-import { MentorTasksService } from '../../modules/intern-tasks/application/services/mentor-tasks.service.js';
-import { InternWeeklyReportsController, MentorWeeklyReportsController } from '../../modules/intern-tasks/presentation/controllers/weekly-reports.controller.js';
-import { WeeklyReportRepository } from '../../modules/intern-tasks/domain/repositories/weekly-report.repository.js';
+import { InternWeeklyReportsController, MentorWeeklyReportsController } from '../../modules/weekly-reports/presentation/controllers/weekly-reports.controller.js';
+import { WeeklyReportRepository } from '../../modules/weekly-reports/domain/repositories/weekly-report.repository.js';
 import { InternProfileController } from '../../modules/applications/presentation/controllers/intern-profile.controller.js';
 import { HrInternProgressController } from '../../modules/intern-placements/presentation/controllers/hr-intern-progress.controller.js';
 import { InternProgressService } from '../../modules/intern-placements/application/services/intern-progress.service.js';
-import { WithdrawMyInternTaskSubmissionUseCase } from '../../modules/intern-tasks/application/use-cases/withdraw-my-intern-task-submission.use-case.js';
 import { GetApplicationIntakeUseCase } from '../../modules/applications/application/use-cases/get-application-intake.use-case.js';
 import { ReleaseApplicationSelectionUseCase } from '../../modules/applications/application/use-cases/release-application-selection.use-case.js';
 import { AdminSettingsService } from '../../modules/admin/application/services/admin-settings.service.js';
@@ -55,11 +52,7 @@ import { GetApplicationInternPlacementUseCase } from '../../modules/intern-place
 import { ListHrMentorsUseCase } from '../../modules/intern-placements/application/use-cases/list-hr-mentors.use-case.js';
 import { AssignInternPlacementMentorUseCase } from '../../modules/intern-placements/application/use-cases/assign-intern-placement-mentor.use-case.js';
 import { GetMyInternPlacementUseCase } from '../../modules/intern-placements/application/use-cases/get-my-intern-placement.use-case.js';
-import { ListMyInternTasksUseCase } from '../../modules/intern-tasks/application/use-cases/list-my-intern-tasks.use-case.js';
-import { UpdateMyInternTaskStatusUseCase } from '../../modules/intern-tasks/application/use-cases/update-my-intern-task-status.use-case.js';
-import { ListMyMentorPlacementsUseCase } from '../../modules/intern-tasks/application/use-cases/list-my-mentor-placements.use-case.js';
-import { ListMentorPlacementTasksUseCase } from '../../modules/intern-tasks/application/use-cases/list-mentor-placement-tasks.use-case.js';
-import { CreateMentorInternTaskUseCase } from '../../modules/intern-tasks/application/use-cases/create-mentor-intern-task.use-case.js';
+import { ListMyMentorPlacementsUseCase } from '../../modules/mentors/application/use-cases/list-my-mentor-placements.use-case.js';
 
 // HTTP-level authorization matrix: real controllers, real SupabaseAuthGuard
 // and RolesGuard, and the same global ValidationPipe as main.ts. Supabase
@@ -130,9 +123,7 @@ const useCaseTokens = [
   MatchApplicationUseCase, GetApplicationMatchUseCase, GetApplicantProfileUseCase, GetHrDashboardUseCase,
   ListInternshipsUseCase, CreateInternshipUseCase, UpdateInternshipUseCase, CreateInternPlacementUseCase,
   ActivateInternPlacementUseCase, CancelInternPlacementUseCase, CompleteInternPlacementUseCase, GetApplicationInternPlacementUseCase, ListHrMentorsUseCase,
-  AssignInternPlacementMentorUseCase, UnassignInternPlacementMentorUseCase, GetMyInternPlacementUseCase, ListMyInternTasksUseCase,
-  UpdateMyInternTaskStatusUseCase, WithdrawMyInternTaskSubmissionUseCase, ListMyMentorPlacementsUseCase, ListMentorPlacementTasksUseCase,
-  CreateMentorInternTaskUseCase,
+  AssignInternPlacementMentorUseCase, UnassignInternPlacementMentorUseCase, GetMyInternPlacementUseCase, ListMyMentorPlacementsUseCase,
 ] as const;
 
 type Method = 'get' | 'post' | 'put' | 'patch';
@@ -189,9 +180,6 @@ const protectedRoutes: ProtectedRoute[] = [
     },
   },
   { method: 'get', path: '/intern/me/placement', allowed: 'INTERN' },
-  { method: 'get', path: '/intern/me/tasks', allowed: 'INTERN' },
-  { method: 'post', path: `/intern/me/tasks/${UUID}/withdraw`, allowed: 'INTERN' },
-  { method: 'patch', path: `/intern/me/tasks/${UUID}/status`, allowed: 'INTERN', body: { status: 'IN_PROGRESS' } },
   { method: 'get', path: '/admin/overview', allowed: 'ADMIN' },
   { method: 'get', path: '/admin/users?role=HR&status=active&search=maya', allowed: 'ADMIN' },
   { method: 'post', path: '/admin/users', allowed: 'ADMIN', body: { email: 'new@example.com', fullName: 'New Mentor', role: 'MENTOR' } },
@@ -199,18 +187,12 @@ const protectedRoutes: ProtectedRoute[] = [
   { method: 'patch', path: `/admin/users/${UUID}/status`, allowed: 'ADMIN', body: { active: false, note: 'Left' } },
   { method: 'get', path: '/admin/audit-events?limit=20', allowed: 'ADMIN' },
   { method: 'get', path: '/mentor/placements', allowed: 'MENTOR' },
-  { method: 'get', path: `/mentor/placements/${UUID}/tasks`, allowed: 'MENTOR' },
-  { method: 'post', path: `/mentor/placements/${UUID}/tasks`, allowed: 'MENTOR', body: { title: 'First task' } },
-  { method: 'get', path: `/mentor/placements/${UUID}/task-events`, allowed: 'MENTOR' },
   { method: 'get', path: `/mentor/placements/${UUID}/weekly-reports`, allowed: 'MENTOR' },
   { method: 'post', path: `/mentor/weekly-reports/${UUID}/review`, allowed: 'MENTOR', body: { decision: 'ACCEPT' } },
   { method: 'get', path: '/intern/me/weekly-reports', allowed: 'INTERN' },
   { method: 'put', path: '/intern/me/weekly-reports/2026-10-05', allowed: 'INTERN', body: { summary: 'Week' } },
   { method: 'post', path: `/intern/me/weekly-reports/${UUID}/submit`, allowed: 'INTERN' },
   { method: 'get', path: '/intern/me/profile', allowed: 'INTERN' },
-  { method: 'patch', path: `/mentor/tasks/${UUID}`, allowed: 'MENTOR', body: { title: 'Edited', priority: 'HIGH' } },
-  { method: 'post', path: `/mentor/tasks/${UUID}/cancel`, allowed: 'MENTOR', body: { reason: 'Not needed' } },
-  { method: 'post', path: `/mentor/tasks/${UUID}/review`, allowed: 'MENTOR', body: { decision: 'ACCEPT' } },
 ];
 
 describe('HTTP authorization matrix', () => {
@@ -236,12 +218,6 @@ describe('HTTP authorization matrix', () => {
     listForMentorPlacement: vi.fn(async () => []),
     reviewForMentor: vi.fn(async () => ({ id: UUID })),
   };
-  const mentorTasks = {
-    update: vi.fn(async () => ({ id: UUID })),
-    cancel: vi.fn(async () => ({ id: UUID })),
-    review: vi.fn(async () => ({ id: UUID })),
-    listEvents: vi.fn(async () => []),
-  };
   const adminSettings = {
     getApplicationIntake: vi.fn(async () => ({ applicationsOpen: true, updatedAt: 't', updatedBy: null })),
     setApplicationIntake: vi.fn(async () => ({ applicationsOpen: false, updatedAt: 't', updatedBy: 'Admin' })),
@@ -262,7 +238,7 @@ describe('HTTP authorization matrix', () => {
       controllers: [
         ApplicationsController, ApplicantProfileController, HrDashboardController,
         InternshipsController, InternshipRequirementsController, HrInternPlacementsController,
-        InternPlacementController, InternTasksController, MentorInternTasksController,
+        InternPlacementController, MentorPlacementsController,
         TrainingPlanningController, AdminController, InternWeeklyReportsController,
         MentorWeeklyReportsController, InternProfileController, HrInternProgressController,
       ],
@@ -271,7 +247,6 @@ describe('HTTP authorization matrix', () => {
         { provide: InternshipRequirementsService, useValue: requirementsService },
         { provide: TrainingPlanningService, useValue: planningService },
         { provide: AdminUsersService, useValue: adminUsers },
-        { provide: MentorTasksService, useValue: mentorTasks },
         { provide: WeeklyReportRepository, useValue: weeklyReports },
         { provide: InternProgressService, useValue: { list: vi.fn(async () => []) } },
         { provide: AdminOverviewService, useValue: adminOverview },
@@ -295,7 +270,6 @@ describe('HTTP authorization matrix', () => {
     requirementsService.upsert.mockClear();
     for (const fn of Object.values(adminUsers)) fn.mockClear();
     adminOverview.getOverview.mockClear();
-    for (const fn of Object.values(mentorTasks)) fn.mockClear();
     for (const fn of Object.values(weeklyReports)) fn.mockClear();
   });
 
@@ -361,18 +335,21 @@ describe('HTTP authorization matrix', () => {
     });
   });
 
-  describe('mentor task requests', () => {
-    it('take the Mentor from the token and validate decisions and priorities', async () => {
-      await send(
-        { method: 'post', path: `/mentor/tasks/${UUID}/review`, allowed: 'MENTOR',
-          body: { decision: 'REQUEST_CHANGES', feedback: '  Add tests ', mentorProfileId: OTHER_UUID } },
-        tokenFor('MENTOR'),
-      ).expect(201);
-      expect(mentorTasks.review).toHaveBeenCalledWith(idFor('MENTOR'), UUID, 'REQUEST_CHANGES', 'Add tests');
-      await send({ method: 'post', path: `/mentor/tasks/${UUID}/review`, allowed: 'MENTOR', body: { decision: 'REJECT' } }, tokenFor('MENTOR')).expect(400);
-      await send({ method: 'patch', path: `/mentor/tasks/${UUID}`, allowed: 'MENTOR', body: { title: 'X', priority: 'URGENT' } }, tokenFor('MENTOR')).expect(400);
-      await send({ method: 'patch', path: `/mentor/tasks/${UUID}`, allowed: 'MENTOR', body: { title: 'X' } }, tokenFor('MENTOR')).expect(400);
-      await send({ method: 'post', path: `/mentor/tasks/${UUID}/cancel`, allowed: 'MENTOR', body: { reason: '  ' } }, tokenFor('MENTOR')).expect(400);
+  describe('retired task routes', () => {
+    it.each([
+      ['get', '/intern/me/tasks', 'INTERN'],
+      ['patch', `/intern/me/tasks/${UUID}/status`, 'INTERN'],
+      ['post', `/intern/me/tasks/${UUID}/withdraw`, 'INTERN'],
+      ['get', `/mentor/placements/${UUID}/tasks`, 'MENTOR'],
+      ['post', `/mentor/placements/${UUID}/tasks`, 'MENTOR'],
+      ['get', `/mentor/placements/${UUID}/task-events`, 'MENTOR'],
+      ['patch', `/mentor/tasks/${UUID}`, 'MENTOR'],
+      ['post', `/mentor/tasks/${UUID}/cancel`, 'MENTOR'],
+      ['post', `/mentor/tasks/${UUID}/review`, 'MENTOR'],
+    ] as const)('%s %s no longer exists', async (method, path, role) => {
+      await request(app.getHttpServer())[method](path)
+        .set('Authorization', `Bearer ${tokenFor(role)}`)
+        .expect(404);
     });
   });
 
@@ -484,35 +461,9 @@ describe('HTTP authorization matrix', () => {
         .toHaveBeenCalledWith({ actorProfileId: idFor('HR'), applicationId: UUID, status: 'UNDER_REVIEW', reason: null, note: null });
     });
 
-    it('creates Mentor tasks as the token owner even if another Mentor id is supplied', async () => {
-      await send(
-        { method: 'post', path: `/mentor/placements/${UUID}/tasks`, allowed: 'MENTOR',
-          body: { title: 'Task', mentorProfileId: OTHER_UUID } },
-        tokenFor('MENTOR'),
-      ).expect(201);
-      expect(mocks.get(CreateMentorInternTaskUseCase)!.execute).toHaveBeenCalledWith(
-        expect.objectContaining({ mentorProfileId: idFor('MENTOR'), placementId: UUID }),
-      );
-    });
-
-    it('withdraws only for the token owner and ignores client-supplied identity, status or time', async () => {
-      await send(
-        { method: 'post', path: `/intern/me/tasks/${UUID}/withdraw`, allowed: 'INTERN',
-          body: { authUserId: OTHER_UUID, status: 'IN_PROGRESS', now: '2000-01-01T00:00:00Z' } },
-        tokenFor('INTERN'),
-      ).expect(201);
-      expect(mocks.get(WithdrawMyInternTaskSubmissionUseCase)!.execute).toHaveBeenCalledWith(idFor('INTERN'), UUID);
-      await send({ method: 'post', path: '/intern/me/tasks/not-a-uuid/withdraw', allowed: 'INTERN' }, tokenFor('INTERN')).expect(400);
-    });
-
-    it('updates Intern tasks only for the token owner', async () => {
-      await send(
-        { method: 'patch', path: `/intern/me/tasks/${UUID}/status`, allowed: 'INTERN',
-          body: { status: 'COMPLETED', authUserId: OTHER_UUID } },
-        tokenFor('INTERN'),
-      ).expect(200);
-      expect(mocks.get(UpdateMyInternTaskStatusUseCase)!.execute)
-        .toHaveBeenCalledWith(idFor('INTERN'), UUID, 'COMPLETED', null);
+    it('lists Mentor placements for the token owner only', async () => {
+      await send({ method: 'get', path: `/mentor/placements?mentorProfileId=${OTHER_UUID}`, allowed: 'MENTOR' }, tokenFor('MENTOR')).expect(200);
+      expect(mocks.get(ListMyMentorPlacementsUseCase)!.execute).toHaveBeenCalledWith(idFor('MENTOR'));
     });
   });
 

@@ -21,7 +21,6 @@ import NotFoundPage from '@/pages/public/NotFound/NotFoundPage';
 import HRLayout from '@/components/layout/HRLayout/HRLayout';
 import InternDashboard from '@/pages/intern/Dashboard/InternDashboard';
 import MyInternship from '@/pages/intern/MyInternship/MyInternship';
-import AssignedTasks from '@/pages/intern/Tasks/AssignedTasks';
 import TrainingReports from '@/pages/intern/TrainingReports/TrainingReports';
 import InternProfile from '@/pages/intern/Profile/InternProfile';
 import MentorLayout from '@/components/layout/MentorLayout/MentorLayout';
@@ -127,7 +126,6 @@ import SystemSettings from '@/pages/admin/Settings/SystemSettings';
          { index: true, element: <InternDashboard /> },
          { path: 'dashboard', element: <InternDashboard /> },
          { path: 'my-internship', element: <MyInternship /> },
-         { path: 'tasks', element: <AssignedTasks /> },
          { path: 'training-reports', element: <TrainingReports /> },
          { path: 'profile', element: <InternProfile /> },
        ],

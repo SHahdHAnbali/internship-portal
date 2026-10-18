@@ -12,12 +12,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/features/auth/auth-context';
-import { useInternTasks } from '@/features/intern/hooks/useInternTasks';
 import { useMyInternPlacement } from '@/features/intern/hooks/useMyInternPlacement';
 import { placementBadge } from '@/features/intern/placement-status';
 import { MY_REPORTS_KEY, mondayOf, REPORT_STATUS_LABELS } from '@/features/intern/report-weeks';
 import { getMyWeeklyReports } from '@/features/intern/services/weekly-reports.service';
-import { isTaskOverdue, localIsoDate } from '@/features/intern/task-labels';
+import { localIsoDate } from '@/features/intern/dates';
 import { placementErrorMessage } from '@/features/intern/services/intern-placement.service';
 import type { MyInternPlacement } from '@/features/intern/types';
 
@@ -70,7 +69,7 @@ function ActivePlacement({ placement }: { placement: MyInternPlacement }) {
       </div>
       {placement.status === 'COMPLETED' && (
         <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-          Your internship has ended. Your tasks, feedback and weekly reports stay available to read.
+          Your internship has ended. Your weekly reports and feedback stay available to read.
         </p>
       )}
 
@@ -112,34 +111,14 @@ function ActivePlacement({ placement }: { placement: MyInternPlacement }) {
   );
 }
 
-// Live task and weekly-report status, with links to act on them.
+// Live weekly-report status, with a link to act on it.
 function WorkSummary() {
-  const tasks = useInternTasks();
   const reports = useQuery({ queryKey: MY_REPORTS_KEY, queryFn: getMyWeeklyReports, retry: false });
-  const list = tasks.data ?? [];
-  const toDo = list.filter((task) => task.status === 'ASSIGNED' || task.status === 'IN_PROGRESS').length;
-  const changes = list.filter((task) => task.reviewStatus === 'CHANGES_REQUESTED').length;
-  const overdue = list.filter((task) => isTaskOverdue(task)).length;
   const thisWeek = mondayOf(localIsoDate());
   const currentReport = (reports.data ?? []).find((report) => report.weekStart === thisWeek);
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <Card>
-        <CardHeader><CardTitle>Tasks</CardTitle></CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          {tasks.isPending ? <p className="text-muted-foreground">Loading…</p>
-            : tasks.isError ? <p className="text-destructive">{tasks.error.message}</p>
-              : (
-                <p>
-                  {toDo} to do
-                  {changes > 0 && <span className="text-destructive"> · {changes} with changes requested</span>}
-                  {overdue > 0 && <span className="text-destructive"> · {overdue} overdue</span>}
-                </p>
-              )}
-          <Link to="/intern/tasks"><Button variant="outline">Open tasks <ArrowRight className="ml-2 size-4" /></Button></Link>
-        </CardContent>
-      </Card>
       <Card>
         <CardHeader><CardTitle>This week’s report</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">

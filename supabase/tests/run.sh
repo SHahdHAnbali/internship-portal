@@ -5,6 +5,11 @@
 # the base schema fixture, apply every migration in supabase/migrations in
 # order, load the helpers, run the test file, then report its t_results rows.
 #
+# Optional seed hook: if supabase/tests/sql/<test name>.before-<version>.sql
+# exists, it runs on that test's database just before the migration whose file
+# name starts with <version>, so a test can create data with functions that the
+# migration later removes and then check what the migration kept.
+#
 # Never touches the linked Supabase project. Requires PostgreSQL client and
 # server binaries (initdb, pg_ctl, psql); set PG_BIN to their directory if
 # they are not on PATH. Usage: bash supabase/tests/run.sh [name-filter]
@@ -52,6 +57,11 @@ for test_file in "$TESTS"/sql/*.test.sql; do
   pg -d postgres -c "CREATE DATABASE $db" >/dev/null
   pg -d "$db" -f "$TESTS/fixtures/base_schema.sql" >/dev/null
   for migration in "$ROOT"/supabase/migrations/*.sql; do
+    seed="$TESTS/sql/$name.before-$(basename "$migration" | cut -d_ -f1).sql"
+    if [[ -f "$seed" ]] && ! pg -d "$db" -f "$seed" >/dev/null 2>"$WORK/err"; then
+      echo "FAIL [$name] seed $(basename "$seed"): $(cat "$WORK/err")"
+      failed=$((failed + 1)); total=$((total + 1)); continue 2
+    fi
     if ! pg -d "$db" -f "$migration" >/dev/null 2>"$WORK/err"; then
       echo "FAIL [$name] migration $(basename "$migration"): $(cat "$WORK/err")"
       failed=$((failed + 1)); total=$((total + 1)); continue 2

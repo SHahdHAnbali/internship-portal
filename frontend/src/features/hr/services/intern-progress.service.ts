@@ -14,7 +14,6 @@ export interface InternProgress {
   status: 'SCHEDULED' | 'ACTIVE' | 'COMPLETED';
   mentorName: string | null;
   mentorActive: boolean | null;
-  tasks: { total: number; open: number; overdue: number; awaitingReview: number; accepted: number };
   reports: { expected: number; submitted: number; accepted: number; returned: number; lastWeek: string | null };
   lastActivityAt: string;
 }

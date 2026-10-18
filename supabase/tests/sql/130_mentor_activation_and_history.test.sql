@@ -1,6 +1,8 @@
 -- Migration 20261017000000: activation requires an eligible assigned Mentor;
 -- the assigned Mentor reads a completed placement's history read-only; an
 -- ACTIVE placement cannot lose its Mentor without a replacement.
+-- Since 20261018000000 the task functions are gone; the history checks here
+-- use weekly reports (the archived task tables are covered by test 160).
 
 INSERT INTO auth.users (id, email) VALUES
  ('00000000-0000-0000-0000-000000000001','hr@x.com'),
@@ -60,9 +62,6 @@ SET ROLE authenticated;
 SELECT public.t_expect_error('P1 browsers cannot activate placements',
   $q$SELECT * FROM public.activate_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f3')$q$,
   'permission denied for function activate_intern_placement');
-SELECT public.t_expect_error('P2 browsers cannot read Mentor task history',
-  $q$SELECT * FROM public.list_mentor_task_events('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc')$q$,
-  'permission denied for function list_mentor_task_events');
 SELECT public.t_expect_error('P3 browsers cannot read Mentor weekly reports',
   $q$SELECT * FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc')$q$,
   'permission denied for function list_mentor_weekly_reports');
@@ -135,18 +134,6 @@ SELECT public.t_expect_ok('C3 swap back (Mentor Two supervises fd for the rest o
   $q$SELECT * FROM public.assign_intern_placement_mentor('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000fd','00000000-0000-0000-0000-000000000003')$q$);
 
 -- B. Completed placement: the assigned Mentor reads history, read-only ----------------------
-SELECT public.t_expect_ok('B0 Mentor One assigns two tasks on fc',
-  $q$SELECT * FROM public.create_mentor_intern_task('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc','T1',NULL,NULL,NULL)$q$);
-SELECT public.t_expect_ok('B0 second task (cancelled before completion)',
-  $q$SELECT * FROM public.create_mentor_intern_task('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc','T2',NULL,NULL,NULL)$q$);
-SELECT public.t_expect_ok('B0 Mentor One cancels T2',
-  $q$SELECT * FROM public.cancel_mentor_intern_task('00000000-0000-0000-0000-000000000002',(SELECT id FROM public.intern_tasks WHERE title='T2'),'Not needed')$q$);
-SELECT public.t_expect_ok('B0 intern starts T1',
-  $q$SELECT * FROM public.update_my_intern_task_status('00000000-0000-0000-0000-000000000031',(SELECT id FROM public.intern_tasks WHERE title='T1'),'IN_PROGRESS',NULL)$q$);
-SELECT public.t_expect_ok('B0 intern completes T1',
-  $q$SELECT * FROM public.update_my_intern_task_status('00000000-0000-0000-0000-000000000031',(SELECT id FROM public.intern_tasks WHERE title='T1'),'COMPLETED',NULL)$q$);
-SELECT public.t_expect_ok('B0 Mentor One accepts T1',
-  $q$SELECT * FROM public.review_mentor_intern_task('00000000-0000-0000-0000-000000000002',(SELECT id FROM public.intern_tasks WHERE title='T1'),'ACCEPT',NULL)$q$);
 SELECT public.t_expect_ok('B0 intern submits a weekly report',
   $q$SELECT * FROM public.submit_my_weekly_report('00000000-0000-0000-0000-000000000031',
        (SELECT id FROM public.save_my_weekly_report('00000000-0000-0000-0000-000000000031', date_trunc('week', current_date)::date - 7, 'Week', NULL, NULL, NULL)))$q$);
@@ -167,81 +154,40 @@ SELECT public.t_expect_error('B1 or removed',
 
 RESET ROLE;
 CREATE TEMP TABLE t_before AS
-SELECT (SELECT md5(string_agg(row_to_json(t)::text, '|' ORDER BY t.id)) FROM public.intern_tasks t) AS tasks,
-       (SELECT count(*) FROM public.intern_task_events) AS task_events,
-       (SELECT md5(string_agg(row_to_json(r)::text, '|' ORDER BY r.id)) FROM public.intern_weekly_reports r) AS reports,
+SELECT (SELECT md5(string_agg(row_to_json(r)::text, '|' ORDER BY r.id)) FROM public.intern_weekly_reports r) AS reports,
        (SELECT count(*) FROM public.intern_weekly_report_events) AS report_events;
 GRANT SELECT ON t_before TO service_role;
 SET ROLE service_role;
 
-SELECT public.t_check('B2 the assigned Mentor reads the completed placement''s tasks',
-  (SELECT array_agg(title || ':' || status ORDER BY title) FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc'))
-    = ARRAY['T1:COMPLETED','T2:CANCELLED']);
-SELECT public.t_check('B3 … its task history',
-  (SELECT count(*) FROM public.list_mentor_task_events('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc'))
-    = (SELECT count(*) FROM public.intern_task_events WHERE placement_id='00000000-0000-0000-0000-0000000000fc')
-  AND (SELECT count(*) FROM public.intern_task_events WHERE placement_id='00000000-0000-0000-0000-0000000000fc') >= 5);
-SELECT public.t_check('B4 … and its weekly reports',
+SELECT public.t_check('B4 the assigned Mentor reads the completed placement''s weekly reports',
   (SELECT array_agg(status) FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc'))
     = ARRAY['ACCEPTED']);
 SELECT public.t_check('B5 the dashboard still lists the completed placement for its Mentor',
   EXISTS (SELECT 1 FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000002')
           WHERE placement_id='00000000-0000-0000-0000-0000000000fc' AND status='COMPLETED'));
 
-SELECT public.t_expect_error('B6 the Mentor cannot create tasks on a completed placement',
-  $q$SELECT * FROM public.create_mentor_intern_task('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc','Late',NULL,NULL,NULL)$q$,
-  'placement_not_active');
-SELECT public.t_expect_error('B7 … cannot edit them',
-  $q$SELECT * FROM public.update_mentor_intern_task('00000000-0000-0000-0000-000000000002',(SELECT id FROM public.intern_tasks WHERE title='T1'),'T1 edited',NULL,NULL,'HIGH')$q$,
-  'placement_not_active');
-SELECT public.t_expect_error('B8 … cannot cancel them',
-  $q$SELECT * FROM public.cancel_mentor_intern_task('00000000-0000-0000-0000-000000000002',(SELECT id FROM public.intern_tasks WHERE title='T1'),'Too late')$q$,
-  'placement_not_active');
-SELECT public.t_expect_error('B9 … cannot review them',
-  $q$SELECT * FROM public.review_mentor_intern_task('00000000-0000-0000-0000-000000000002',(SELECT id FROM public.intern_tasks WHERE title='T1'),'REQUEST_CHANGES','Redo')$q$,
-  'placement_not_active');
-SELECT public.t_expect_error('B10 … and cannot review reports',
+SELECT public.t_expect_error('B10 the Mentor cannot review reports of a completed placement',
   $q$SELECT * FROM public.review_mentor_weekly_report('00000000-0000-0000-0000-000000000002',(SELECT id FROM public.intern_weekly_reports WHERE placement_id='00000000-0000-0000-0000-0000000000fc'),'RETURN','Redo')$q$,
   'placement_not_active');
-SELECT public.t_check('B11 reads and refused writes left every task, report and history row unchanged',
-  (SELECT md5(string_agg(row_to_json(t)::text, '|' ORDER BY t.id)) FROM public.intern_tasks t) = (SELECT tasks FROM t_before)
-  AND (SELECT count(*) FROM public.intern_task_events) = (SELECT task_events FROM t_before)
-  AND (SELECT md5(string_agg(row_to_json(r)::text, '|' ORDER BY r.id)) FROM public.intern_weekly_reports r) = (SELECT reports FROM t_before)
+SELECT public.t_check('B11 reads and refused writes left every report and history row unchanged',
+  (SELECT md5(string_agg(row_to_json(r)::text, '|' ORDER BY r.id)) FROM public.intern_weekly_reports r) = (SELECT reports FROM t_before)
   AND (SELECT count(*) FROM public.intern_weekly_report_events) = (SELECT report_events FROM t_before));
 
 -- Isolation between Mentors, and unreadable statuses -----------------------------------------
-SELECT public.t_expect_error('I1 another Mentor cannot read the completed placement''s tasks',
-  $q$SELECT * FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-0000000000fc')$q$,
-  'placement_not_assigned_to_mentor');
-SELECT public.t_expect_error('I2 … its task history',
-  $q$SELECT * FROM public.list_mentor_task_events('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-0000000000fc')$q$,
-  'placement_not_assigned_to_mentor');
-SELECT public.t_expect_error('I3 … or its reports',
+SELECT public.t_expect_error('I3 another Mentor cannot read the completed placement''s reports',
   $q$SELECT * FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-0000000000fc')$q$,
   'placement_not_assigned_to_mentor');
-SELECT public.t_expect_error('I4 Mentor One cannot read Mentor Two''s active placement tasks',
-  $q$SELECT * FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fd')$q$,
-  'placement_not_assigned_to_mentor');
-SELECT public.t_expect_error('I5 … its task history',
-  $q$SELECT * FROM public.list_mentor_task_events('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fd')$q$,
-  'placement_not_assigned_to_mentor');
-SELECT public.t_expect_error('I6 … or its reports',
+SELECT public.t_expect_error('I6 Mentor One cannot read the reports of Mentor Two''s active placement',
   $q$SELECT * FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fd')$q$,
   'placement_not_assigned_to_mentor');
 SELECT public.t_check('I7 Mentor Two''s dashboard does not list Mentor One''s placements',
   NOT EXISTS (SELECT 1 FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000003')
               WHERE placement_id IN ('00000000-0000-0000-0000-0000000000fc','00000000-0000-0000-0000-0000000000fe')));
-SELECT public.t_expect_error('S1 a cancelled placement stays unreadable (tasks)',
-  $q$SELECT * FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fe')$q$,
-  'placement_not_active');
-SELECT public.t_expect_error('S2 … (task history)',
-  $q$SELECT * FROM public.list_mentor_task_events('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fe')$q$,
-  'placement_not_active');
-SELECT public.t_expect_error('S3 … (reports)',
+SELECT public.t_expect_error('S3 a cancelled placement stays unreadable (reports)',
   $q$SELECT * FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fe')$q$,
   'placement_not_active');
 SELECT public.t_expect_error('S4 a scheduled placement stays unreadable through these functions',
-  $q$SELECT * FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000f3')$q$,
+  $q$SELECT * FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000f3')$q$,
   'placement_not_active');
 RESET ROLE;
 
@@ -323,31 +269,18 @@ SELECT dblink_disconnect('hr2');
 SET ROLE service_role;
 SELECT public.t_expect_ok('D1 the admin deactivates Mentor One (no open placements left)',
   $q$SELECT * FROM public.admin_set_user_active('00000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000002',false,'Left the company')$q$);
-SELECT public.t_expect_error('D2 a deactivated Mentor cannot read the completed placement',
-  $q$SELECT * FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc')$q$,
-  'mentor_role_required');
-SELECT public.t_expect_error('D3 … nor its task history',
-  $q$SELECT * FROM public.list_mentor_task_events('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc')$q$,
-  'mentor_role_required');
-SELECT public.t_expect_error('D4 … nor its reports',
+SELECT public.t_expect_error('D4 a deactivated Mentor cannot read the completed placement''s reports',
   $q$SELECT * FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc')$q$,
   'mentor_role_required');
 SELECT public.t_expect_ok('D5 reactivated',
   $q$SELECT * FROM public.admin_set_user_active('00000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000002',true,NULL)$q$);
 SELECT public.t_check('D5 a reactivated Mentor reads it again',
-  (SELECT count(*) FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc'))=2);
+  (SELECT count(*) FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc'))=1);
 SELECT public.t_expect_ok('D6 the admin demotes Mentor One to HR',
   $q$SELECT * FROM public.admin_change_user_role('00000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000002','HR',NULL)$q$);
-SELECT public.t_expect_error('D7 a demoted Mentor cannot read the completed placement',
-  $q$SELECT * FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc')$q$,
-  'mentor_role_required');
-SELECT public.t_expect_error('D8 … nor its task history',
-  $q$SELECT * FROM public.list_mentor_task_events('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc')$q$,
-  'mentor_role_required');
-SELECT public.t_expect_error('D9 … nor its reports',
+SELECT public.t_expect_error('D9 a demoted Mentor cannot read the completed placement''s reports',
   $q$SELECT * FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000fc')$q$,
   'mentor_role_required');
 SELECT public.t_check('D10 the history itself is kept',
-  (SELECT count(*) FROM public.intern_tasks WHERE placement_id='00000000-0000-0000-0000-0000000000fc')=2
-  AND (SELECT count(*) FROM public.intern_weekly_reports WHERE placement_id='00000000-0000-0000-0000-0000000000fc')=1);
+  (SELECT count(*) FROM public.intern_weekly_reports WHERE placement_id='00000000-0000-0000-0000-0000000000fc')=1);
 RESET ROLE;

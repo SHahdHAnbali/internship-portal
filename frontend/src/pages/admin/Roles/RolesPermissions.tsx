@@ -33,7 +33,7 @@ const ROLES: { role: UserRole; assigned: string; can: string[] }[] = [
     assigned: 'By an administrator. HR then assigns them to placements.',
     can: [
       'See only the placements HR assigned to them',
-      'Create tasks for interns in their active placements',
+      'Review the weekly reports of interns in their placements',
     ],
   },
   {
@@ -41,7 +41,7 @@ const ROLES: { role: UserRole; assigned: string; can: string[] }[] = [
     assigned: 'Automatically, when HR activates the applicant’s placement.',
     can: [
       'See their own active placement',
-      'See and update the status of their own tasks',
+      'Write and submit their own weekly reports',
     ],
   },
   {

@@ -14,7 +14,7 @@ import {
   saveMyWeeklyReport,
   submitMyWeeklyReport,
 } from '@/features/intern/services/weekly-reports.service';
-import { localIsoDate } from '@/features/intern/task-labels';
+import { localIsoDate } from '@/features/intern/dates';
 import type { WeeklyReport, WeeklyReportContent } from '@/features/intern/types';
 
 const FIELDS: { key: keyof WeeklyReportContent; label: string; hint: string; required?: boolean }[] = [

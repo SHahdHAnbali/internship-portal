@@ -92,8 +92,10 @@ SELECT public.t_expect_ok('A1 HR assigns Mentor One',
 SELECT public.t_expect_error('A2 assigning the same Mentor again is refused',
   $q$SELECT * FROM public.assign_intern_placement_mentor('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-000000000002')$q$,
   'mentor_unchanged');
-SELECT public.t_expect_ok('A3 Mentor One creates a task for the active placement',
-  $q$SELECT * FROM public.create_mentor_intern_task('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000f1','Read the handbook',NULL,NULL,NULL)$q$);
+SELECT public.t_expect_ok('A3 the intern submits a weekly report on the active placement',
+  $q$SELECT * FROM public.submit_my_weekly_report('00000000-0000-0000-0000-000000000005',
+       (SELECT id FROM public.save_my_weekly_report('00000000-0000-0000-0000-000000000005',
+          date_trunc('week', current_date)::date, 'Read the handbook', NULL, NULL, NULL)))$q$);
 SELECT public.t_check('A4 Mentor One sees the placement; Mentor Two does not',
   (SELECT count(*) FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000002'))=1
   AND (SELECT count(*) FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000003'))=0);
@@ -106,14 +108,15 @@ SELECT public.t_expect_ok('RA1 HR reassigns to Mentor Two',
 SELECT public.t_check('RA2 Mentor One no longer sees the placement; Mentor Two does',
   (SELECT count(*) FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000002'))=0
   AND (SELECT count(*) FROM public.list_my_mentor_placements('00000000-0000-0000-0000-000000000003'))=1);
-SELECT public.t_expect_error('RA3 Mentor One can no longer create tasks there',
-  $q$SELECT * FROM public.create_mentor_intern_task('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000f1','Late task',NULL,NULL,NULL)$q$,
+SELECT public.t_expect_error('RA3 Mentor One can no longer review reports there (same answer as a missing report)',
+  $q$SELECT * FROM public.review_mentor_weekly_report('00000000-0000-0000-0000-000000000002',
+       (SELECT id FROM public.intern_weekly_reports WHERE placement_id='00000000-0000-0000-0000-0000000000f1'),'ACCEPT',NULL)$q$,
+  'report_not_found');
+SELECT public.t_expect_error('RA4 Mentor One can no longer read its reports',
+  $q$SELECT * FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000f1')$q$,
   'placement_not_assigned_to_mentor');
-SELECT public.t_expect_error('RA4 Mentor One can no longer read its tasks',
-  $q$SELECT * FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000f1')$q$,
-  'placement_not_assigned_to_mentor');
-SELECT public.t_check('RA5 Mentor Two sees the existing task (tasks belong to the placement)',
-  (SELECT count(*) FROM public.list_mentor_intern_tasks('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-0000000000f1'))=1);
+SELECT public.t_check('RA5 Mentor Two sees the existing report (reports belong to the placement)',
+  (SELECT count(*) FROM public.list_mentor_weekly_reports('00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-0000000000f1'))=1);
 
 -- Removal ----------------------------------------------------------------------------------
 SELECT public.t_expect_error('U1 HR cannot remove the Mentor of an active placement without a replacement',

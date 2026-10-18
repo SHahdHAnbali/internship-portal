@@ -345,10 +345,6 @@ function getNavigation(
           to: '/intern/my-internship',
         },
         {
-          label: 'Tasks',
-          to: '/intern/tasks',
-        },
-        {
           label: 'Weekly Reports',
           to: '/intern/training-reports',
         },
@@ -381,7 +377,7 @@ function getNavigation(
     case 'MENTOR':
       return [
         {
-          label: 'Assigned Interns & Tasks',
+          label: 'Assigned Interns',
           to: '/mentor',
         },
       ];

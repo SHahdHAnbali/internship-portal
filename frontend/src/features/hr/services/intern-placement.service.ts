@@ -123,7 +123,7 @@ export async function cancelHrInternPlacement(placementId: string, reason: strin
 }
 
 // Early end (before the planned end date) needs a note; the server also
-// refuses while tasks or weekly reports are still open.
+// refuses while weekly reports await the Mentor's review.
 export async function completeHrInternPlacement(placementId: string, note: string | null): Promise<HrInternPlacement> {
   const response = await authenticatedFetch(
     `${env.apiUrl}/hr/placements/${placementId}/complete`,

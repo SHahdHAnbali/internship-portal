@@ -4,9 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getMyMentorPlacements } from '@/features/intern/services/intern-tasks.service';
-import type { MentorPlacement } from '@/features/intern/services/intern-tasks.service';
-import MentorPlacementTaskManager from './MentorPlacementTaskManager';
+import { getMyMentorPlacements } from '@/features/mentor/services/mentor-placements.service';
+import type { MentorPlacement } from '@/features/mentor/services/mentor-placements.service';
 import MentorWeeklyReports from './MentorWeeklyReports';
 
 const PLACEMENT_LABELS: Record<MentorPlacement['status'], string> = {
@@ -16,7 +15,7 @@ const PLACEMENT_LABELS: Record<MentorPlacement['status'], string> = {
   CANCELLED: 'Cancelled',
 };
 
-function sum(placements: MentorPlacement[], key: 'openTasks' | 'awaitingReview' | 'overdueTasks' | 'reportsAwaitingReview') {
+function sum(placements: MentorPlacement[], key: 'reportsAwaitingReview') {
   return placements.reduce((total, placement) => total + placement[key], 0);
 }
 
@@ -38,8 +37,8 @@ export default function MentorDashboard() {
     <div className="mx-auto max-w-6xl space-y-7 p-5 sm:p-8">
       <header>
         <p className="text-sm font-medium text-primary">MENTOR WORKSPACE</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Assigned Interns & Tasks</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Review the placements assigned to you and coordinate tasks for active interns.</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Assigned Interns</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Review the placements assigned to you and the weekly reports of your interns.</p>
       </header>
 
       {query.isPending ? (
@@ -57,11 +56,8 @@ export default function MentorDashboard() {
         </CardContent></Card>
       ) : (
         <div className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Summary label="Active interns" value={query.data.filter((p) => p.status === 'ACTIVE').length} />
-            <Summary label="Open tasks" value={sum(query.data, 'openTasks')} />
-            <Summary label="Awaiting your review" value={sum(query.data, 'awaitingReview')} highlight />
-            <Summary label="Overdue" value={sum(query.data, 'overdueTasks')} />
             <Summary label="Reports to review" value={sum(query.data, 'reportsAwaitingReview')} highlight />
           </div>
           {query.data.map((placement) => (
@@ -81,28 +77,20 @@ export default function MentorDashboard() {
                   <p><span className="text-muted-foreground">Company:</span> {placement.company}</p>
                   <p><span className="text-muted-foreground">Department:</span> {placement.department || 'Not specified'}</p>
                   <p><span className="text-muted-foreground">Training dates:</span> {placement.startDate} – {placement.endDate}</p>
-                  <p>
-                    <span className="text-muted-foreground">Tasks:</span> {placement.openTasks} open · {placement.awaitingReview} awaiting review
-                    {placement.overdueTasks > 0 && <span className="text-destructive"> · {placement.overdueTasks} overdue</span>} · {placement.acceptedTasks} accepted
-                  </p>
                   <p><span className="text-muted-foreground">Weekly reports:</span> {placement.reportsAwaitingReview} awaiting review</p>
                 </div>
                 {placement.status === 'ACTIVE' ? (
-                  <>
-                    <MentorPlacementTaskManager placementId={placement.placementId} />
-                    <MentorWeeklyReports placementId={placement.placementId} />
-                  </>
+                  <MentorWeeklyReports placementId={placement.placementId} />
                 ) : placement.status === 'COMPLETED' ? (
                   <>
                     <p className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                      <ClipboardList className="size-4" />This placement is completed. Its tasks and weekly reports are read-only.
+                      <ClipboardList className="size-4" />This placement is completed. Its weekly reports are read-only.
                     </p>
-                    <MentorPlacementTaskManager placementId={placement.placementId} readOnly />
                     <MentorWeeklyReports placementId={placement.placementId} readOnly />
                   </>
                 ) : (
                   <div className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                    <ClipboardList className="size-4" />Task management is available while the placement is active.
+                    <ClipboardList className="size-4" />Weekly reports are available while the placement is active.
                   </div>
                 )}
               </CardContent>

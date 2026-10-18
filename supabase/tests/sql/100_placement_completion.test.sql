@@ -1,5 +1,6 @@
 -- Migration 20261011090000: placement completion (HR only, early end needs a
--- reason, blocked by open work, intern keeps read-only access).
+-- reason, blocked by reports awaiting review, intern keeps read-only access).
+-- Since 20261018000000 archived tasks no longer block completion.
 
 INSERT INTO auth.users (id, email) VALUES
  ('00000000-0000-0000-0000-000000000001','hr@x.com'),
@@ -42,27 +43,17 @@ SELECT public.t_expect_error('W2 ADMIN does not inherit HR',
 SELECT public.t_expect_error('W3 the intern cannot complete',
   $q$SELECT * FROM public.complete_intern_placement('00000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-0000000000f1','x')$q$, 'hr_role_required');
 
--- Open work blocks completion -----------------------------------------------------------------------
-SELECT public.t_expect_ok('O0 Mentor assigns a task and the intern submits a report',
-  $q$SELECT * FROM public.create_mentor_intern_task('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000f1','T1',NULL,NULL,NULL)$q$);
-SELECT public.t_expect_ok('O0b report',
+-- Open work blocks completion; archived tasks do not ---------------------------------------------
+RESET ROLE;
+-- A task left open by the retired task feature (written directly: no function writes tasks any more).
+INSERT INTO public.intern_tasks (placement_id, title, status) VALUES ('00000000-0000-0000-0000-0000000000f1', 'Legacy open task', 'ASSIGNED');
+SET ROLE service_role;
+SELECT public.t_expect_ok('O0 the intern submits a report',
   $q$SELECT * FROM public.submit_my_weekly_report('00000000-0000-0000-0000-000000000005',
        (SELECT id FROM public.save_my_weekly_report('00000000-0000-0000-0000-000000000005', date_trunc('week', current_date)::date - 7, 'Week', NULL, NULL, NULL)))$q$);
 SELECT public.t_expect_error('O1 early end needs a reason',
   $q$SELECT * FROM public.complete_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1','  ')$q$,
   'early_end_reason_required');
-SELECT public.t_expect_error('O2 an open task blocks completion',
-  $q$SELECT * FROM public.complete_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1','Moved abroad')$q$,
-  'placement_has_open_tasks');
-SELECT public.t_expect_ok('O3 intern finishes the task',
-  $q$SELECT * FROM public.update_my_intern_task_status('00000000-0000-0000-0000-000000000005',(SELECT id FROM public.intern_tasks WHERE title='T1'),'IN_PROGRESS',NULL)$q$);
-SELECT public.t_expect_ok('O3b',
-  $q$SELECT * FROM public.update_my_intern_task_status('00000000-0000-0000-0000-000000000005',(SELECT id FROM public.intern_tasks WHERE title='T1'),'COMPLETED',NULL)$q$);
-SELECT public.t_expect_error('O4 an unreviewed completed task still blocks',
-  $q$SELECT * FROM public.complete_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1','Moved abroad')$q$,
-  'placement_has_open_tasks');
-SELECT public.t_expect_ok('O5 Mentor accepts the task',
-  $q$SELECT * FROM public.review_mentor_intern_task('00000000-0000-0000-0000-000000000002',(SELECT id FROM public.intern_tasks WHERE title='T1'),'ACCEPT',NULL)$q$);
 SELECT public.t_expect_error('O6 a report awaiting review blocks completion',
   $q$SELECT * FROM public.complete_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1','Moved abroad')$q$,
   'placement_has_pending_reports');
@@ -85,17 +76,18 @@ SELECT public.t_check('E3 the intern keeps the INTERN role',
   (SELECT role FROM public.profiles WHERE id='00000000-0000-0000-0000-000000000005')='INTERN');
 
 -- Read-only afterwards -------------------------------------------------------------------------------
-SELECT public.t_check('R1 the intern still sees their tasks and reports',
-  (SELECT count(*) FROM public.list_my_intern_tasks('00000000-0000-0000-0000-000000000005'))=1
-  AND (SELECT count(*) FROM public.list_my_weekly_reports('00000000-0000-0000-0000-000000000005'))=1);
+SELECT public.t_check('E4 completed although the archived task is still open (and unchanged)',
+  (SELECT status FROM public.intern_tasks WHERE title='Legacy open task')='ASSIGNED');
+SELECT public.t_check('R1 the intern still sees their reports',
+  (SELECT count(*) FROM public.list_my_weekly_reports('00000000-0000-0000-0000-000000000005'))=1);
 SELECT public.t_expect_error('R2 but cannot write reports',
   $q$SELECT * FROM public.save_my_weekly_report('00000000-0000-0000-0000-000000000005', date_trunc('week', current_date)::date, 'More', NULL, NULL, NULL)$q$,
   'active_placement_not_found');
-SELECT public.t_expect_error('R3 and the Mentor cannot add tasks',
-  $q$SELECT * FROM public.create_mentor_intern_task('00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-0000000000f1','Late',NULL,NULL,NULL)$q$,
+SELECT public.t_expect_error('R3 and the Mentor cannot review reports any more',
+  $q$SELECT * FROM public.review_mentor_weekly_report('00000000-0000-0000-0000-000000000002',(SELECT id FROM public.intern_weekly_reports LIMIT 1),'RETURN','Late')$q$,
   'placement_not_active');
 SELECT public.t_check('R4 another intern sees none of it',
-  (SELECT count(*) FROM public.list_my_intern_tasks('00000000-0000-0000-0000-000000000006'))=0);
+  (SELECT count(*) FROM public.list_my_weekly_reports('00000000-0000-0000-0000-000000000006'))=0);
 SELECT public.t_expect_error('R5 no second placement for the same application',
   $q$SELECT * FROM public.create_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000c1','Acme',NULL,current_date,current_date + 10)$q$,
   'placement_already_exists');
@@ -115,29 +107,29 @@ SELECT public.t_expect_error('N2 the completion fields stay consistent',
   '%intern_placements_completion_check%');
 RESET ROLE;
 
--- Concurrency: HR completes while the Mentor creates a task ------------------------------------------
+-- Concurrency: HR completes while the intern saves a weekly report ------------------------------------
 UPDATE public.intern_placements SET end_date = current_date + 30 WHERE id = '00000000-0000-0000-0000-0000000000f2';
 UPDATE public.intern_placements SET status='ACTIVE', completed_at=NULL, ended_early=NULL, completion_note=NULL
   WHERE id='00000000-0000-0000-0000-0000000000f2';
 CREATE EXTENSION IF NOT EXISTS dblink;
-SELECT dblink_connect('mentor', format('host=127.0.0.1 port=%s dbname=%s user=postgres',
+SELECT dblink_connect('intern', format('host=127.0.0.1 port=%s dbname=%s user=postgres',
   current_setting('port'), current_database()));
-SELECT dblink_exec('mentor', 'SET ROLE service_role');
+SELECT dblink_exec('intern', 'SET ROLE service_role');
 BEGIN;
 SET LOCAL ROLE service_role;
 SELECT public.t_expect_ok('CC1 HR completes f2 (uncommitted)',
   $q$SELECT * FROM public.complete_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f2','Contract ended')$q$);
-SELECT dblink_send_query('mentor', $q$
-  SELECT status FROM public.create_mentor_intern_task('00000000-0000-0000-0000-000000000002',
-    '00000000-0000-0000-0000-0000000000f2', 'Racing task', NULL, NULL, NULL);
+SELECT dblink_send_query('intern', $q$
+  SELECT status FROM public.save_my_weekly_report('00000000-0000-0000-0000-000000000006',
+    date_trunc('week', current_date)::date, 'Racing report', NULL, NULL, NULL);
 $q$);
 SELECT pg_sleep(0.5);
-SELECT public.t_check('CC2 the task creation waits for the completion', dblink_is_busy('mentor') = 1);
+SELECT public.t_check('CC2 the report save waits for the completion', dblink_is_busy('intern') = 1);
 COMMIT;
-SELECT * FROM dblink_get_result('mentor', false) AS r(status text);
+SELECT * FROM dblink_get_result('intern', false) AS r(status text);
 INSERT INTO public.t_results (label, ok, detail)
-SELECT 'CC3 the task is refused after completion commits', msg LIKE '%placement_not_active%', msg
-FROM (SELECT dblink_error_message('mentor') AS msg) AS e;
-SELECT dblink_disconnect('mentor');
-SELECT public.t_check('CC4 no task was added to the completed placement',
-  NOT EXISTS (SELECT 1 FROM public.intern_tasks WHERE title='Racing task'));
+SELECT 'CC3 the report is refused after completion commits', msg LIKE '%active_placement_not_found%', msg
+FROM (SELECT dblink_error_message('intern') AS msg) AS e;
+SELECT dblink_disconnect('intern');
+SELECT public.t_check('CC4 no report was added to the completed placement',
+  NOT EXISTS (SELECT 1 FROM public.intern_weekly_reports WHERE summary='Racing report'));

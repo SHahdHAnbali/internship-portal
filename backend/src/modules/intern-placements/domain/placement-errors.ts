@@ -22,7 +22,9 @@ const MESSAGES: Record<string, () => Error> = {
   placement_not_completable: () => new ConflictException('Only an active placement can be completed.'),
   early_end_reason_required: () => new BadRequestException('Give a reason for ending the placement before its end date.'),
   completion_note_too_long: () => new BadRequestException('The note is too long.'),
-  placement_has_open_tasks: () => new ConflictException('The intern still has open or unreviewed tasks. Ask the Mentor to review or cancel them first.'),
+  // Raised by the database until the task retirement migration removes the
+  // legacy task check; tasks can no longer be closed from the portal.
+  placement_has_open_tasks: () => new ConflictException('This placement still has open tasks from the retired task feature, so it cannot be completed until the pending database update is applied.'),
   placement_has_pending_reports: () => new ConflictException('A weekly report is waiting for the Mentor’s review. Ask the Mentor to review it first.'),
   placement_not_cancellable: () => new ConflictException('Only a placement that has not started can be cancelled.'),
   applicant_auth_link_missing: () => new ConflictException('The applicant has no account yet, so the placement cannot be activated.'),

@@ -551,7 +551,6 @@ Intern (`RoleGuard` for `INTERN`, via `InternRoute`):
 /intern                      (dashboard)
 /intern/dashboard
 /intern/my-internship
-/intern/tasks
 /intern/training-reports
 /intern/profile
 ```
@@ -627,7 +626,6 @@ Sign Out
 Home
 Dashboard
 My Internship
-Tasks
 Weekly Reports
 Sign Out
 ```
@@ -635,7 +633,7 @@ Sign Out
 ### Mentor (implemented)
 
 ```text
-Assigned Interns & Tasks
+Assigned Interns
 Sign Out
 ```
 

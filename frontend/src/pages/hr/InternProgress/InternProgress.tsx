@@ -13,8 +13,8 @@ const STATUS_LABELS: Record<InternProgress['status'], string> = {
   COMPLETED: 'Completed',
 };
 
-// HR follow-up of placements: Mentor coverage, task progress and weekly
-// reports, as counts. Task and report content stays with intern and Mentor.
+// HR follow-up of placements: Mentor coverage and weekly reports, as counts.
+// Report content stays with intern and Mentor.
 export default function InternProgressPage() {
   const query = useQuery({ queryKey: ['hr', 'intern-progress'], queryFn: getInternProgress, retry: false });
 
@@ -23,7 +23,7 @@ export default function InternProgressPage() {
       <header>
         <h1 className="text-2xl font-semibold text-[#112D4E]">Intern Progress</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Follow up scheduled and active placements: Mentor assignment, task progress and weekly reports.
+          Follow up scheduled and active placements: Mentor assignment and weekly reports.
           Open a placement to change it.
         </p>
       </header>
@@ -46,13 +46,12 @@ export default function InternProgressPage() {
       ) : (
         <Card>
           <CardContent className="overflow-x-auto p-0">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Intern</th>
                   <th className="px-4 py-3 font-medium">Placement</th>
                   <th className="px-4 py-3 font-medium">Mentor</th>
-                  <th className="px-4 py-3 font-medium">Tasks</th>
                   <th className="px-4 py-3 font-medium">Weekly reports</th>
                   <th className="px-4 py-3 font-medium">Last activity</th>
                 </tr>
@@ -80,17 +79,6 @@ export default function InternProgressPage() {
                         </>
                       ) : (
                         <p className="flex items-center gap-1 text-amber-700 dark:text-amber-400"><AlertTriangle className="size-4" />No Mentor</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {row.tasks.total === 0 ? <span className="text-muted-foreground">None yet</span> : (
-                        <>
-                          <p>{row.tasks.accepted} of {row.tasks.total} accepted</p>
-                          <p className="text-xs text-muted-foreground">
-                            {row.tasks.open} open · {row.tasks.awaitingReview} awaiting review
-                            {row.tasks.overdue > 0 && <span className="text-destructive"> · {row.tasks.overdue} overdue</span>}
-                          </p>
-                        </>
                       )}
                     </td>
                     <td className="px-4 py-3">

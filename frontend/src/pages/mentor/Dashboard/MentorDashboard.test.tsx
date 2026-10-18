@@ -3,23 +3,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { MentorPlacement } from '@/features/intern/services/intern-tasks.service';
-import type { InternTask, WeeklyReport } from '@/features/intern/types';
+import type { MentorPlacement } from '@/features/mentor/services/mentor-placements.service';
+import type { WeeklyReport } from '@/features/intern/types';
 
-const tasksApi = vi.hoisted(() => ({
+const placementsApi = vi.hoisted(() => ({
   getMyMentorPlacements: vi.fn(),
-  getMentorPlacementTasks: vi.fn(),
-  getMentorTaskEvents: vi.fn(),
-  createMentorPlacementTask: vi.fn(),
-  updateMentorTask: vi.fn(),
-  cancelMentorTask: vi.fn(),
-  reviewMentorTask: vi.fn(),
 }));
 const reportsApi = vi.hoisted(() => ({
   getMentorWeeklyReports: vi.fn(),
   reviewMentorWeeklyReport: vi.fn(),
 }));
-vi.mock('@/features/intern/services/intern-tasks.service', () => tasksApi);
+vi.mock('@/features/mentor/services/mentor-placements.service', () => placementsApi);
 vi.mock('@/features/intern/services/weekly-reports.service', () => reportsApi);
 
 import MentorDashboard from './MentorDashboard';
@@ -28,16 +22,7 @@ function placement(overrides: Partial<MentorPlacement>): MentorPlacement {
   return {
     placementId: 'active-id', internName: 'Active Intern', internEmail: null, company: 'Example Co', department: null,
     startDate: '2026-09-01', endDate: '2026-12-01', status: 'ACTIVE', trainingTitle: 'Engineering',
-    openTasks: 0, awaitingReview: 0, overdueTasks: 0, acceptedTasks: 0, reportsAwaitingReview: 0,
-    ...overrides,
-  };
-}
-
-function task(overrides: Partial<InternTask>): InternTask {
-  return {
-    id: 't1', placementId: 'completed-id', title: 'Submitted work', description: null, dueDate: null,
-    status: 'COMPLETED', priority: 'MEDIUM', reviewStatus: null, mentorFeedback: null, reviewedAt: null,
-    cancelledAt: null, cancellationReason: null, createdAt: 'c', updatedAt: 'u',
+    reportsAwaitingReview: 0,
     ...overrides,
   };
 }
@@ -53,34 +38,19 @@ function renderDashboard() {
   return render(<QueryClientProvider client={client}><MentorDashboard /></QueryClientProvider>);
 }
 
-describe('MentorDashboard: completed placements are read-only', () => {
+describe('MentorDashboard', () => {
   afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-  it('shows a completed placement\'s tasks and reports without any create, edit, cancel or review control', async () => {
-    tasksApi.getMyMentorPlacements.mockResolvedValue([
+  it('shows a completed placement\'s reports read-only, without review controls', async () => {
+    placementsApi.getMyMentorPlacements.mockResolvedValue([
       placement({ placementId: 'completed-id', internName: 'Former Intern', status: 'COMPLETED' }),
     ]);
-    // Even if the data looked actionable, the read-only view offers no action.
-    tasksApi.getMentorPlacementTasks.mockResolvedValue([
-      task({}), task({ id: 't2', title: 'Still open', status: 'ASSIGNED' }),
-    ]);
-    tasksApi.getMentorTaskEvents.mockResolvedValue([]);
     reportsApi.getMentorWeeklyReports.mockResolvedValue([submittedReport]);
     renderDashboard();
 
     expect(await screen.findByText('Completed — read-only')).toBeTruthy();
-    expect(screen.getByText('This placement is completed. Its tasks and weekly reports are read-only.')).toBeTruthy();
-    expect(await screen.findByText('Submitted work')).toBeTruthy();
-    expect(screen.getByText('Still open')).toBeTruthy();
-    expect(tasksApi.getMentorPlacementTasks).toHaveBeenCalledWith('completed-id');
-    expect(tasksApi.getMentorTaskEvents).toHaveBeenCalledWith('completed-id');
-
-    expect(screen.queryByRole('button', { name: 'Assign task' })).toBeNull();
-    expect(screen.queryByLabelText(/New task title/)).toBeNull();
-    for (const name of ['Review', 'Edit', 'Cancel task']) {
-      expect(screen.queryByRole('button', { name })).toBeNull();
-    }
-    expect(screen.getAllByRole('button', { name: 'History' }).length).toBe(2);
+    expect(screen.getByText('This placement is completed. Its weekly reports are read-only.')).toBeTruthy();
+    expect(reportsApi.getMentorWeeklyReports).toHaveBeenCalledWith('completed-id');
 
     expect(screen.queryByRole('button', { name: 'Read & review' })).toBeNull();
     fireEvent.click(await screen.findByRole('button', { name: 'Read' }));
@@ -88,49 +58,52 @@ describe('MentorDashboard: completed placements are read-only', () => {
     expect(screen.queryByRole('button', { name: 'Accept report' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Return for changes' })).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
-
-    for (const write of [tasksApi.createMentorPlacementTask, tasksApi.updateMentorTask, tasksApi.cancelMentorTask,
-      tasksApi.reviewMentorTask, reportsApi.reviewMentorWeeklyReport]) {
-      expect(write).not.toHaveBeenCalled();
-    }
+    expect(reportsApi.reviewMentorWeeklyReport).not.toHaveBeenCalled();
   });
 
-  it('keeps full task management for an active placement next to a completed one', async () => {
-    tasksApi.getMyMentorPlacements.mockResolvedValue([
-      placement({}),
+  it('offers report review for an active placement and shows the reports-to-review total', async () => {
+    placementsApi.getMyMentorPlacements.mockResolvedValue([
+      placement({ reportsAwaitingReview: 1 }),
       placement({ placementId: 'completed-id', internName: 'Former Intern', status: 'COMPLETED' }),
     ]);
-    tasksApi.getMentorPlacementTasks.mockImplementation(async (id: string) =>
-      id === 'active-id' ? [task({ placementId: 'active-id', title: 'Active review' })] : []);
-    tasksApi.getMentorTaskEvents.mockResolvedValue([]);
+    reportsApi.getMentorWeeklyReports.mockImplementation(async (id: string) =>
+      id === 'active-id' ? [{ ...submittedReport, placementId: 'active-id' }] : []);
+    renderDashboard();
+
+    expect(await screen.findByRole('button', { name: 'Read & review' })).toBeTruthy();
+    expect(screen.getByText('Reports to review').nextElementSibling?.textContent).toBe('1');
+    expect(await screen.findByText('No weekly reports were submitted during this placement.')).toBeTruthy();
+  });
+
+  it('shows no task management anywhere', async () => {
+    placementsApi.getMyMentorPlacements.mockResolvedValue([placement({})]);
     reportsApi.getMentorWeeklyReports.mockResolvedValue([]);
     renderDashboard();
 
-    expect(await screen.findByRole('button', { name: 'Assign task' })).toBeTruthy();
-    expect(await screen.findByRole('button', { name: 'Review' })).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Assign task' }).length).toBe(1);
-    expect(await screen.findByText('No tasks were assigned during this placement.')).toBeTruthy();
-    expect(screen.getByText('No weekly reports were submitted during this placement.')).toBeTruthy();
+    expect(await screen.findByText('Active Intern')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Assigned Interns');
+    expect(screen.queryByRole('button', { name: 'Assign task' })).toBeNull();
+    expect(screen.queryByText(/Open tasks/)).toBeNull();
+    expect(screen.queryByText(/Tasks:/)).toBeNull();
   });
 
-  it('keeps scheduled and cancelled placements without task access', async () => {
-    tasksApi.getMyMentorPlacements.mockResolvedValue([
+  it('keeps scheduled and cancelled placements without report access', async () => {
+    placementsApi.getMyMentorPlacements.mockResolvedValue([
       placement({ placementId: 'scheduled-id', internName: 'Future Intern', status: 'SCHEDULED' }),
       placement({ placementId: 'cancelled-id', internName: 'Cancelled Intern', status: 'CANCELLED' }),
     ]);
     renderDashboard();
-    expect((await screen.findAllByText('Task management is available while the placement is active.')).length).toBe(2);
-    expect(tasksApi.getMentorPlacementTasks).not.toHaveBeenCalled();
+    expect((await screen.findAllByText('Weekly reports are available while the placement is active.')).length).toBe(2);
     expect(reportsApi.getMentorWeeklyReports).not.toHaveBeenCalled();
   });
 
   it('keeps the loading, empty and error states', async () => {
-    tasksApi.getMyMentorPlacements.mockResolvedValueOnce([]);
+    placementsApi.getMyMentorPlacements.mockResolvedValueOnce([]);
     renderDashboard();
     expect(await screen.findByText('No interns assigned yet')).toBeTruthy();
     cleanup();
 
-    tasksApi.getMyMentorPlacements.mockRejectedValueOnce(new Error('Unable to load placements'));
+    placementsApi.getMyMentorPlacements.mockRejectedValueOnce(new Error('Unable to load placements'));
     renderDashboard();
     expect(screen.getByText('Loading your assignments…')).toBeTruthy();
     expect(await screen.findByText('Unable to load placements')).toBeTruthy();
