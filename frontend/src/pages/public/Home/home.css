@@ -1,0 +1,135 @@
+/* Public homepage: decoration and motion only. Colours come from the theme
+   tokens (globals.css); every animation is removed for people who ask for
+   reduced motion, and content is visible without JavaScript. */
+
+/* ---------- Hero backdrop ---------- */
+
+.home-hero-backdrop {
+  background:
+    radial-gradient(60rem 28rem at 15% -10%, color-mix(in oklab, var(--secondary) 85%, transparent), transparent 70%),
+    radial-gradient(40rem 24rem at 95% 10%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 70%),
+    var(--background);
+}
+
+/* A faint grid that fades out towards the edges. */
+.home-hero-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--foreground) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--foreground) 6%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 40%, transparent 100%);
+}
+
+/* ---------- Hero entrance (staggered with --home-delay) ---------- */
+
+.home-rise {
+  animation: home-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--home-delay, 0ms);
+}
+
+@keyframes home-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- Hero journey illustration ---------- */
+
+.home-journey-path {
+  stroke-dasharray: 6 8;
+  animation: home-dash 18s linear infinite;
+}
+
+@keyframes home-dash {
+  to {
+    stroke-dashoffset: -280;
+  }
+}
+
+.home-float {
+  animation: home-float 7s ease-in-out infinite;
+  animation-delay: var(--home-delay, 0ms);
+}
+
+@keyframes home-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.home-pulse-dot {
+  animation: home-pulse 2.4s ease-out infinite;
+}
+
+@keyframes home-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 45%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+/* ---------- Reveal on scroll (see Reveal.tsx) ----------
+   Only elements that start below the fold are marked "hidden", and only
+   when IntersectionObserver exists and motion is allowed. */
+
+[data-reveal='hidden'] {
+  opacity: 0;
+  transform: translateY(18px);
+}
+
+[data-reveal='shown'] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 650ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 650ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* ---------- How it works: panel swap ---------- */
+
+.home-step-panel {
+  animation: home-fade 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes home-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- Reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .home-rise,
+  .home-journey-path,
+  .home-float,
+  .home-pulse-dot,
+  .home-step-panel {
+    animation: none;
+  }
+
+  [data-reveal='hidden'],
+  [data-reveal='shown'] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

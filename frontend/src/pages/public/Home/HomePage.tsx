@@ -1,365 +1,190 @@
+import type { CSSProperties } from 'react';
+import { ArrowRight, Award, BookOpenCheck, Users, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import Navbar from '@/components/layout/Navbar/Navbar';
 import Footer from '@/components/layout/Footer/Footer';
+import Navbar from '@/components/layout/Navbar/Navbar';
+import { buttonVariants } from '@/components/ui/button';
+import type { UserRole } from '@/features/auth/auth-context';
 import { useAuth } from '@/features/auth/auth-context';
 
+import HeroJourneyArt from './HeroJourneyArt';
+import { useApplicationIntake } from './home-queries';
+import HowItWorks from './HowItWorks';
+import Reveal from './Reveal';
+import { scrollToSection } from './scroll-to-section';
+import TrainingAreas from './TrainingAreas';
+
+import './home.css';
+
+// Where each signed-in role continues from the homepage (AGENTS.md, "Home
+// Page CTA Behavior"); guests are offered Sign In.
+const ROLE_DESTINATION: Record<UserRole, { label: string; to: string }> = {
+  APPLICANT: { label: 'My Profile', to: '/applicant/profile' },
+  HR: { label: 'HR Dashboard', to: '/hr/dashboard' },
+  ADMIN: { label: 'Admin Dashboard', to: '/admin/dashboard' },
+  INTERN: { label: 'Intern Portal', to: '/intern' },
+  MENTOR: { label: 'Mentor Portal', to: '/mentor' },
+};
+
+// What an internship here involves, as the portal implements it.
+const BENEFITS: { icon: LucideIcon; title: string; text: string }[] = [
+  {
+    icon: BookOpenCheck,
+    title: 'Hands-on practice',
+    text: 'Apply what you have studied in a real working environment, in the training area you choose.',
+  },
+  {
+    icon: Users,
+    title: 'Guided by a mentor',
+    text: 'Once your internship starts, an assigned mentor follows your progress, reviews your weekly reports and writes evaluations.',
+  },
+  {
+    icon: Award,
+    title: 'Certificate of completion',
+    text: 'Complete your internship and receive a certificate of completion that you can print or save as a PDF.',
+  },
+];
+
+const rise = (delay: number) => ({ '--home-delay': `${delay}ms` }) as CSSProperties;
+
 export default function HomePage() {
-  const {
-    user,
-    role,
-  } = useAuth();
+  const { user, role, loading } = useAuth();
+  const intake = useApplicationIntake();
+  const destination = user && role ? ROLE_DESTINATION[role] : null;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <Navbar />
 
-      <main className="flex-1">
-        {/* =========================
-            Hero Section
-           ========================= */}
+      <main className="flex-1 overflow-x-clip">
+        {/* Hero */}
+        <section aria-labelledby="home-heading" className="home-hero-backdrop relative border-b border-border/70">
+          <div aria-hidden="true" className="home-hero-grid pointer-events-none absolute inset-0" />
 
-        <section className="relative overflow-hidden border-b">
-          {/* Decorative background */}
-          <div className="pointer-events-none absolute inset-0 -z-10">
-            <div className="absolute left-1/2 top-0 h-[500px] w-[800px] -translate-x-1/2 rounded-full bg-primary/5 blur-3xl" />
-          </div>
-
-          <div className="mx-auto max-w-7xl px-6 py-24 md:py-32">
-            <div className="mx-auto max-w-4xl text-center">
-              <Badge
-                variant="secondary"
-                className="mb-6 px-4 py-1.5"
-              >
-                Internship Recruitment Platform
-              </Badge>
-
-              <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl">
-                Start your career
-                <br />
-
-                <span className="text-primary">
-                  with the right opportunity
+          <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-6 py-20 md:py-28 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:py-32">
+            <div className="max-w-2xl">
+              <div className="home-rise flex flex-wrap items-center gap-2" style={rise(0)}>
+                <span className="inline-flex items-center rounded-full border border-border bg-background/80 px-3 py-1 text-xs font-medium text-foreground/80">
+                  Internship &amp; practical training program
                 </span>
+                {intake.data && (
+                  <span
+                    role="status"
+                    className="inline-flex items-center gap-2 rounded-full border border-border bg-background/80 px-3 py-1 text-xs font-medium text-foreground/80"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={
+                        intake.data.applicationsOpen
+                          ? 'home-pulse-dot size-2 rounded-full bg-emerald-600 text-emerald-600'
+                          : 'size-2 rounded-full bg-foreground/35'
+                      }
+                    />
+                    {intake.data.applicationsOpen ? 'Applications are open' : 'Applications are currently closed'}
+                  </span>
+                )}
+              </div>
+
+              <h1
+                id="home-heading"
+                className="home-rise mt-7 text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl"
+                style={rise(80)}
+              >
+                Start Your <span className="text-primary">Internship</span> Journey
               </h1>
 
-              <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
-                Discover internship opportunities, apply with
-                ease, and follow your recruitment journey from
-                application to selection — all in one place.
+              <p
+                className="home-rise mt-6 max-w-xl text-base leading-7 text-foreground/75 sm:text-lg sm:leading-8"
+                style={rise(160)}
+              >
+                Gain practical experience, build real skills and learn with guidance from an assigned mentor. Find
+                the training area that fits you and apply in a few simple steps.
               </p>
 
-              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <Link to="/internships">
-                  <Button
-                    size="lg"
-                    className="min-w-44"
-                  >
-                    Explore Internships
-                  </Button>
-                </Link>
-
-                {/* Guest */}
-                {!user && (
-                  <Link to="/login">
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      className="min-w-44"
-                    >
-                      Sign In
-                    </Button>
-                  </Link>
-                )}
-
-                {/* Applicant */}
-                {user &&
-                  role ===
-                    'APPLICANT' && (
-                    <Link to="/applicant/profile">
-                      <Button
-                        size="lg"
-                        variant="outline"
-                        className="min-w-44"
-                      >
-                        My Profile
-                      </Button>
-                    </Link>
-                  )}
-
-                {/* HR */}
-                {user &&
-                  role === 'HR' && (
-                    <Link to="/hr/dashboard">
-                      <Button
-                        size="lg"
-                        variant="outline"
-                        className="min-w-44"
-                      >
-                        HR Dashboard
-                      </Button>
-                    </Link>
-                  )}
-
-                {/* Intern */}
-                {user &&
-                  role ===
-                    'INTERN' && (
-                    <Link to="/intern">
-                      <Button
-                        size="lg"
-                        variant="outline"
-                        className="min-w-44"
-                      >
-                        Intern Portal
-                      </Button>
-                    </Link>
-                  )}
-
-                {/* Mentor */}
-                {user &&
-                  role ===
-                    'MENTOR' && (
-                    <Link to="/mentor">
-                      <Button size="lg" variant="outline" className="min-w-44">
-                        Mentor Portal
-                      </Button>
-                    </Link>
-                  )}
-              </div>
-
-              <p className="mt-5 text-xs text-muted-foreground">
-                Find opportunities. Build experience. Grow your
-                career.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* =========================
-            Platform Features
-           ========================= */}
-
-        <section className="bg-muted/30">
-          <div className="mx-auto max-w-7xl px-6 py-20 md:py-24">
-            <div className="mx-auto mb-12 max-w-2xl text-center">
-              <p className="text-sm font-medium text-primary">
-                ONE CENTRALIZED PLATFORM
-              </p>
-
-              <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-                Everything you need for your internship journey
-              </h2>
-
-              <p className="mt-4 text-muted-foreground">
-                From discovering opportunities to tracking your
-                application, every step is managed through one
-                centralized platform.
-              </p>
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-3">
-              {/* Card 1 */}
-              <Card className="transition-shadow hover:shadow-md">
-                <CardHeader>
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    01
-                  </div>
-
-                  <CardTitle>
-                    Discover Opportunities
-                  </CardTitle>
-                </CardHeader>
-
-                <CardContent>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Browse available internship positions,
-                    explore their requirements, and find
-                    opportunities that match your skills and
-                    interests.
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Card 2 */}
-              <Card className="transition-shadow hover:shadow-md">
-                <CardHeader>
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    02
-                  </div>
-
-                  <CardTitle>
-                    Apply Smarter
-                  </CardTitle>
-                </CardHeader>
-
-                <CardContent>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Upload your CV and let our intelligent
-                    processing system extract your information
-                    to simplify the application process.
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Card 3 */}
-              <Card className="transition-shadow hover:shadow-md">
-                <CardHeader>
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    03
-                  </div>
-
-                  <CardTitle>
-                    Track Your Journey
-                  </CardTitle>
-                </CardHeader>
-
-                <CardContent>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Stay informed about your application status,
-                    interviews, evaluations, and recruitment
-                    progress.
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </section>
-
-        {/* =========================
-            How It Works
-           ========================= */}
-
-        <section>
-          <div className="mx-auto max-w-7xl px-6 py-20 md:py-24">
-            <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
-              <div>
-                <p className="text-sm font-medium text-primary">
-                  HOW IT WORKS
-                </p>
-
-                <h2 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-                  From application to opportunity
-                </h2>
-
-                <p className="mt-4 max-w-xl text-muted-foreground">
-                  Our recruitment platform organizes the
-                  entire internship application process into a
-                  clear and transparent journey.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex gap-4 rounded-xl border bg-card p-5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                    1
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold">
-                      Create your account
-                    </h3>
-
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Set up your profile and provide your basic
-                      information.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4 rounded-xl border bg-card p-5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                    2
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold">
-                      Upload your CV
-                    </h3>
-
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Our system extracts relevant information
-                      from your CV.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4 rounded-xl border bg-card p-5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                    3
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold">
-                      Review your application
-                    </h3>
-
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Review the extracted information and
-                      correct anything before submitting.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4 rounded-xl border bg-card p-5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                    4
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold">
-                      Follow your recruitment journey
-                    </h3>
-
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Track your application through screening,
-                      interviews, and the final decision.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* =========================
-            CTA
-           ========================= */}
-
-        <section className="border-t bg-primary">
-          <div className="mx-auto max-w-7xl px-6 py-16">
-            <div className="flex flex-col items-center justify-between gap-6 text-center md:flex-row md:text-left">
-              <div>
-                <h2 className="text-2xl font-semibold tracking-tight text-primary-foreground sm:text-3xl">
-                  Ready to start your internship journey?
-                </h2>
-
-                <p className="mt-2 text-sm text-primary-foreground/75">
-                  Explore current internship opportunities and
-                  take the next step in your career.
-                </p>
-              </div>
-
-              <Link to="/internships">
-                <Button
-                  size="lg"
-                  variant="secondary"
-                  className="min-w-40"
+              <div className="home-rise mt-9 flex flex-col gap-3 sm:flex-row sm:items-center" style={rise(240)}>
+                {/* Exploring scrolls to the training areas; applying stays on the Apply page. */}
+                <a
+                  href="#training-areas"
+                  onClick={(event) => scrollToSection(event, 'training-areas')}
+                  className={buttonVariants({
+                    size: 'lg',
+                    className: 'h-11 w-full px-5 text-[0.95rem] shadow-[0_10px_24px_-12px_rgba(63,114,175,0.9)] sm:w-auto',
+                  })}
                 >
-                  View Internships
-                </Button>
-              </Link>
+                  Explore Internships
+                  <ArrowRight data-icon="inline-end" />
+                </a>
+                <a
+                  href="#how-it-works"
+                  onClick={(event) => scrollToSection(event, 'how-it-works')}
+                  className="inline-flex h-11 items-center justify-center rounded-lg border border-border bg-background/80 px-5 text-[0.95rem] font-medium text-foreground outline-none transition-colors hover:border-primary/40 hover:bg-secondary/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  How It Works
+                </a>
+              </div>
+
+              {!loading && (
+                <p className="home-rise mt-6 text-sm text-foreground/65" style={rise(320)}>
+                  {destination ? (
+                    <Link
+                      to={destination.to}
+                      className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:underline"
+                    >
+                      Go to {destination.label}
+                      <ArrowRight className="size-3.5" aria-hidden="true" />
+                    </Link>
+                  ) : (
+                    <>
+                      Already applied?{' '}
+                      <Link
+                        to="/login"
+                        className="font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:underline"
+                      >
+                        Sign in
+                      </Link>{' '}
+                      to follow your application.
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+
+            <div className="home-rise hidden lg:block" style={rise(200)}>
+              <HeroJourneyArt />
             </div>
           </div>
         </section>
+
+        {/* What an internship offers */}
+        <section aria-labelledby="benefits-heading">
+          <div className="mx-auto max-w-7xl px-6 py-20 md:py-24">
+            <Reveal className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Learning by doing</p>
+              <h2 id="benefits-heading" className="mt-3 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+                Practical training with guidance at every step
+              </h2>
+            </Reveal>
+
+            <ul className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-border bg-border md:grid-cols-3">
+              {BENEFITS.map(({ icon: Icon, title, text }, index) => (
+                <li key={title} className="bg-background">
+                  <Reveal delay={index * 90} className="group h-full p-7 transition-colors duration-200 hover:bg-secondary/30 sm:p-8">
+                    <span className="flex size-11 items-center justify-center rounded-xl bg-secondary text-primary transition-[translate,background-color,color] duration-300 group-hover:-translate-y-0.5 group-hover:bg-primary group-hover:text-primary-foreground motion-reduce:transition-none motion-reduce:group-hover:translate-y-0">
+                      <Icon className="size-5" aria-hidden="true" />
+                    </span>
+                    <h3 className="mt-6 text-lg font-semibold text-foreground">{title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-foreground/70">{text}</p>
+                  </Reveal>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <TrainingAreas />
+
+        <HowItWorks />
       </main>
 
       <Footer />
