@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+
 import {
   Link,
   useLocation,
@@ -10,10 +12,12 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  Menu,
   User,
+  X,
 } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
 import {
@@ -45,6 +49,27 @@ function Navbar() {
 
   const navigation =
     getNavigation(role, Boolean(user));
+
+  // Small screens: the links open in a panel under the header. It is open
+  // only for the page it was opened on, so any navigation closes it.
+  const [menuOpenAt, setMenuOpenAt] =
+    useState<string | null>(null);
+  const menuOpen =
+    menuOpenAt === location.pathname;
+  const menuButton =
+    useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpenAt(null);
+        menuButton.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen]);
 
   const isActive = (
     path: string,
@@ -91,7 +116,7 @@ function Navbar() {
         </Link>
 
         {/* Navigation */}
-        <nav className="hidden items-center gap-6 lg:flex">
+        <nav aria-label="Main" className="hidden items-center gap-6 lg:flex">
           {navigation.map(
             (item) => (
               <Link
@@ -165,8 +190,79 @@ function Navbar() {
               </Button>
             </>
           )}
+
+          <Button
+            ref={menuButton}
+            type="button"
+            variant="ghost"
+            size="icon-lg"
+            className="lg:hidden"
+            aria-expanded={menuOpen}
+            aria-controls="mobile-navigation"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            onClick={() =>
+              setMenuOpenAt(
+                menuOpen
+                  ? null
+                  : location.pathname,
+              )
+            }
+          >
+            {menuOpen ? (
+              <X className="size-5" />
+            ) : (
+              <Menu className="size-5" />
+            )}
+          </Button>
         </div>
       </div>
+
+      {menuOpen && (
+        <nav
+          id="mobile-navigation"
+          aria-label="Main"
+          className="border-t bg-background lg:hidden"
+        >
+          <ul className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-3">
+            {navigation.map(
+              (item) => (
+                <li key={item.to}>
+                  <Link
+                    to={item.to}
+                    onClick={() => setMenuOpenAt(null)}
+                    aria-current={
+                      isActive(item.to)
+                        ? 'page'
+                        : undefined
+                    }
+                    className={[
+                      'block rounded-lg px-3 py-2.5 text-sm font-medium outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50',
+                      isActive(item.to)
+                        ? 'bg-secondary text-foreground'
+                        : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+                    ].join(' ')}
+                  >
+                    {item.label}
+                  </Link>
+                </li>
+              ),
+            )}
+
+            {!loading && !user && (
+              <li className="sm:hidden">
+                <Link
+                  to="/login"
+                  onClick={() => setMenuOpenAt(null)}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary/60 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+                >
+                  <LogIn className="h-4 w-4" />
+                  Sign In
+                </Link>
+              </li>
+            )}
+          </ul>
+        </nav>
+      )}
     </header>
   );
 }
@@ -178,21 +274,23 @@ function Navbar() {
 function GuestActions() {
   return (
     <>
-      <Link to="/login">
-        <Button
-          variant="ghost"
-          className="hidden sm:inline-flex"
-        >
-          <LogIn className="mr-2 h-4 w-4" />
+      <Link
+        to="/login"
+        className={buttonVariants({
+          variant: 'ghost',
+          className: 'hidden sm:inline-flex',
+        })}
+      >
+        <LogIn className="mr-2 h-4 w-4" />
 
-          Sign In
-        </Button>
+        Sign In
       </Link>
 
-      <Link to="/apply">
-        <Button>
-          Apply Now
-        </Button>
+      <Link
+        to="/apply"
+        className={buttonVariants()}
+      >
+        Apply Now
       </Link>
     </>
   );
@@ -202,61 +300,66 @@ function GuestActions() {
    Role-specific main action
    ========================================================= */
 
+const ROLE_ACTIONS: Partial<
+  Record<
+    UserRole,
+    { to: string; label: string; icon: typeof User }
+  >
+> = {
+  APPLICANT: {
+    to: '/applicant/profile',
+    label: 'My Profile',
+    icon: User,
+  },
+  HR: {
+    to: '/hr/dashboard',
+    label: 'HR Portal',
+    icon: LayoutDashboard,
+  },
+  INTERN: {
+    to: '/intern',
+    label: 'Intern Portal',
+    icon: BriefcaseBusiness,
+  },
+  MENTOR: {
+    to: '/mentor',
+    label: 'Mentor Portal',
+    icon: User,
+  },
+};
+
+// One link styled as a button (no nested <button>): a single tab stop, and
+// an accessible name on small screens where only the icon is shown.
 function RoleAction({
   role,
 }: {
   role: UserRole | null;
 }) {
-  switch (role) {
-    case 'APPLICANT':
-      return (
-        <Link to="/applicant/profile">
-          <Button variant="outline">
-            <User className="mr-2 h-4 w-4" />
+  const action = role
+    ? ROLE_ACTIONS[role]
+    : undefined;
 
-            <span className="hidden sm:inline">
-              My Profile
-            </span>
-          </Button>
-        </Link>
-      );
-
-    case 'HR':
-      return (
-        <Link to="/hr/dashboard">
-          <Button variant="outline">
-            <LayoutDashboard className="mr-2 h-4 w-4" />
-
-            <span className="hidden sm:inline">
-              HR Portal
-            </span>
-          </Button>
-        </Link>
-      );
-
-    case 'INTERN':
-      return (
-        <Link to="/intern">
-          <Button variant="outline">
-            <BriefcaseBusiness className="mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Intern Portal</span>
-          </Button>
-        </Link>
-      );
-
-    case 'MENTOR':
-      return (
-        <Link to="/mentor">
-          <Button variant="outline">
-            <User className="mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Mentor Portal</span>
-          </Button>
-        </Link>
-      );
-
-    default:
-      return null;
+  if (!action) {
+    return null;
   }
+
+  const Icon = action.icon;
+
+  return (
+    <Link
+      to={action.to}
+      aria-label={action.label}
+      className={buttonVariants({
+        variant: 'outline',
+      })}
+    >
+      <Icon className="mr-2 h-4 w-4 max-sm:mr-0" />
+
+      <span className="hidden sm:inline">
+        {action.label}
+      </span>
+    </Link>
+  );
 }
 
 /* =========================================================
@@ -285,15 +388,13 @@ function getNavigation(
   }
 
   switch (role) {
+    // No "Internships" link: an applicant has already applied (each
+    // applicant can apply only once).
     case 'APPLICANT':
       return [
         {
           label: 'Home',
           to: '/',
-        },
-        {
-          label: 'Internships',
-          to: '/internships',
         },
         {
           label: 'My Profile',
