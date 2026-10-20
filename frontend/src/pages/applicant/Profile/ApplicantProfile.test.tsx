@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ApplicantProfile as ApplicantProfileType } from '@/features/applications/types';
@@ -81,3 +81,84 @@ describe('ApplicantProfile: cache isolation between accounts', () => {
     });
   }
 });
+
+// One application per applicant (enforced by the server): once an application
+// is submitted, the page no longer invites the applicant to apply again.
+describe('ApplicantProfile: apply link and the one-application rule', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks(); setSignedInUserId(null); });
+
+  const submitted = (status: 'NEW' | 'SELECTED' | 'REJECTED') => ({
+    id: 'app-1',
+    trainingTitle: 'Frontend Developer',
+    trainingType: 'INTERNSHIP' as const,
+    status,
+    appliedAt: '2026-10-01T09:00:00Z',
+    submittedAt: '2026-10-01T09:30:00Z',
+    rejectionReason: status === 'REJECTED' ? 'Not a fit this time' : null,
+    placement: null,
+  });
+
+  it.each(['NEW', 'SELECTED', 'REJECTED'] as const)(
+    'shows no apply link once an application is submitted (%s), and still shows the application',
+    async (status) => {
+      api.getApplicantProfile.mockResolvedValue({ ...profile('Lina', 'lina@example.com'), applications: [submitted(status)] });
+      renderAs('applicant-a', newClient());
+      expect(await screen.findByText('Frontend Developer')).toBeTruthy();
+      expect(screen.getByText('My applications')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Apply for another training' })).toBeNull();
+      expect(document.querySelector('a[href="/apply"]')).toBeNull();
+      if (status === 'REJECTED') expect(screen.getByText('Not a fit this time')).toBeTruthy();
+      // The rest of the page stays usable.
+      expect(screen.getByRole('button', { name: /Edit profile/ })).toBeTruthy();
+    },
+  );
+
+  it('keeps the apply link while no application has been submitted', async () => {
+    api.getApplicantProfile.mockResolvedValue(profile('Lina', 'lina@example.com'));
+    renderAs('applicant-a', newClient());
+    expect(await screen.findByText('You have no submitted applications yet.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Apply for another training' }).closest('a')?.getAttribute('href')).toBe('/apply');
+  });
+});
+
+describe('ApplicantProfile: Back to Website', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks(); setSignedInUserId(null); });
+
+  function renderWithHome() {
+    auth.userId = 'applicant-a';
+    setSignedInUserId('applicant-a');
+    return render(
+      <QueryClientProvider client={newClient()}>
+        <MemoryRouter initialEntries={['/applicant/profile']}>
+          <Routes>
+            <Route path="/" element={<p>Public homepage</p>} />
+            <Route path="/applicant/profile" element={<ApplicantProfile />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('shows a Back to Website link in the header that returns to the homepage', async () => {
+    api.getApplicantProfile.mockResolvedValue(profile('Lina', 'lina@example.com'));
+    renderWithHome();
+    const link = await screen.findByRole('link', { name: 'Back to Website' });
+    expect(link.getAttribute('href')).toBe('/');
+    expect(link.querySelector('button')).toBeNull();
+    // The header's other action and the page's actions remain.
+    expect(screen.getByRole('button', { name: /Sign out/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Edit profile/ })).toBeTruthy();
+
+    fireEvent.click(link);
+    expect(await screen.findByText('Public homepage')).toBeTruthy();
+  });
+
+  it('offers the link when the profile cannot be loaded', async () => {
+    api.getApplicantProfile.mockRejectedValue(new Error('down'));
+    renderWithHome();
+    expect(await screen.findByText('Unable to load your profile')).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Website' }));
+    expect(await screen.findByText('Public homepage')).toBeTruthy();
+  });
+});
+

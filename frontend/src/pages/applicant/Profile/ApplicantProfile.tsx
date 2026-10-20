@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
+  ArrowLeft,
   BriefcaseBusiness,
   CalendarDays,
   CheckCircle2,
@@ -16,7 +17,7 @@ import {
 import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -108,6 +109,7 @@ export default function ApplicantProfile() {
               </Button>
               <Button onClick={() => void signOut()}>Sign out</Button>
             </div>
+            <BackToWebsiteLink className="mt-4" />
           </CardContent>
         </Card>
       </main>
@@ -126,9 +128,12 @@ export default function ApplicantProfile() {
             <p className="text-sm font-medium text-primary">Applicant portal</p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight">Welcome, {profile.fullName}</h1>
           </div>
-          <Button variant="outline" onClick={() => void signOut()}>
-            <LogOut className="mr-2 h-4 w-4" /> Sign out
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <BackToWebsiteLink />
+            <Button variant="outline" onClick={() => void signOut()}>
+              <LogOut className="mr-2 h-4 w-4" /> Sign out
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -142,9 +147,14 @@ export default function ApplicantProfile() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <CardTitle>My applications</CardTitle>
-            <Link to="/apply">
-              <Button variant="outline" size="sm">Apply for another training</Button>
-            </Link>
+            {/* Each applicant can submit only one application (enforced by the
+                server), so the apply link is offered only before the first one.
+                `applications` holds submitted applications only (no drafts). */}
+            {applications.length === 0 && (
+              <Link to="/apply">
+                <Button variant="outline" size="sm">Apply for another training</Button>
+              </Link>
+            )}
           </CardHeader>
           <CardContent>
             {applications.length === 0 ? (
@@ -281,4 +291,15 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime())
     ? value
     : new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+}
+
+// Back to the public website (the homepage route). One link styled as a
+// button: a single tab stop with the standard focus ring.
+function BackToWebsiteLink({ className = '' }: { className?: string }) {
+  return (
+    <Link to="/" className={buttonVariants({ variant: 'ghost', className: `gap-2 ${className}` })}>
+      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+      Back to Website
+    </Link>
+  );
 }
