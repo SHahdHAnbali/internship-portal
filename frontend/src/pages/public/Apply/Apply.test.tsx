@@ -43,11 +43,11 @@ import Apply from './Apply';
 
 const HASH = 'a'.repeat(64);
 
-function renderApply() {
+function renderApply(url = '/apply') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter><Apply /></MemoryRouter>
+      <MemoryRouter initialEntries={[url]}><Apply /></MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -376,5 +376,31 @@ describe('Apply page: a previously submitted CV', () => {
     expect(screen.queryByText('You have already applied')).toBeNull();
     // The form stays, so a different CV can be chosen.
     expect(screen.getByRole('combobox')).toBeTruthy();
+  });
+});
+
+// The homepage and the Internships page link to /apply?internshipId=<id>.
+describe('Apply page: an internship chosen elsewhere', () => {
+  beforeEach(() => {
+    api.getInternships.mockResolvedValue([
+      { id: 'i1', title: 'Backend', isActive: true, createdAt: 'c' },
+      { id: 'i2', title: 'Frontend Developer', isActive: true, createdAt: 'c' },
+    ]);
+    api.getApplicationIntake.mockResolvedValue({ applicationsOpen: true });
+  });
+  afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+  it('preselects the listed internship from the link, keeping "Other" available', async () => {
+    renderApply('/apply?internshipId=i2');
+    await screen.findByText('Start your application');
+    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    expect(select.value).toBe('i2');
+    expect([...select.options].map((option) => option.textContent?.trim())).toContain('Other');
+  });
+
+  it('selects nothing for an id that is not a listed internship', async () => {
+    renderApply('/apply?internshipId=not-listed');
+    await screen.findByText('Start your application');
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('');
   });
 });
