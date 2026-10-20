@@ -102,6 +102,9 @@ SELECT public.t_expect_ok('N1 past its end date no reason is needed',
   $q$SELECT * FROM public.complete_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f2',NULL)$q$);
 SELECT public.t_check('N1 not an early end',
   (SELECT NOT ended_early AND completion_note IS NULL FROM public.intern_placements WHERE id='00000000-0000-0000-0000-0000000000f2'));
+SELECT public.t_check('N1 since 20261019000000 each completion issued exactly one certificate',
+  (SELECT count(*) FROM public.internship_certificates WHERE placement_id='00000000-0000-0000-0000-0000000000f1' AND status='ISSUED')=1
+  AND (SELECT count(*) FROM public.internship_certificates WHERE placement_id='00000000-0000-0000-0000-0000000000f2' AND status='ISSUED')=1);
 SELECT public.t_expect_error('N2 the completion fields stay consistent',
   $q$UPDATE public.intern_placements SET completed_at=NULL WHERE id='00000000-0000-0000-0000-0000000000f2'$q$,
   '%intern_placements_completion_check%');
@@ -133,3 +136,5 @@ FROM (SELECT dblink_error_message('intern') AS msg) AS e;
 SELECT dblink_disconnect('intern');
 SELECT public.t_check('CC4 no report was added to the completed placement',
   NOT EXISTS (SELECT 1 FROM public.intern_weekly_reports WHERE summary='Racing report'));
+SELECT public.t_check('CC5 completing f2 again (after the direct reset above) kept its one certificate',
+  (SELECT count(*) FROM public.internship_certificates WHERE placement_id='00000000-0000-0000-0000-0000000000f2')=1);

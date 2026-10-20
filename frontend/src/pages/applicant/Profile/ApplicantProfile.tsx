@@ -24,6 +24,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { useAuth } from '@/features/auth/auth-context';
+import { getSignedInUserId } from '@/lib/auth-identity';
 import ApplicantDataView from '@/features/applications/components/ApplicantDataView';
 import {
   getApplicantProfile,
@@ -42,20 +43,34 @@ import type {
 
 import ApplicantProfileForm from './ApplicantProfileForm';
 
-const profileKey = ['applicant', 'me'] as const;
+// Scoped by the signed-in user, so one applicant's cached profile is never
+// read by another account in the same tab.
+const profileKey = (userId: string) => ['applicant', 'me', userId] as const;
 
 export default function ApplicantProfile() {
-  const { signOut, refreshProfile } = useAuth();
+  const { user, signOut, refreshProfile } = useAuth();
+  const userId = user?.id ?? '';
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
 
-  const profileQuery = useQuery({ queryKey: profileKey, queryFn: getApplicantProfile, retry: false });
+  const profileQuery = useQuery({
+    queryKey: profileKey(userId),
+    queryFn: getApplicantProfile,
+    retry: false,
+    enabled: userId !== '',
+  });
 
   const save = useMutation({
+    // Remembers who started the save.
+    onMutate: () => ({ startedBy: userId }),
     mutationFn: (update: ApplicantProfileUpdate) => updateApplicantProfile(update),
-    onSuccess: (updated) => {
-      queryClient.setQueryData<ApplicantProfileType>(profileKey, updated);
+    onSuccess: (updated, _update, context) => {
+      // A save that finishes after the signed-in user changed (sign-out, or
+      // another account in this tab) must not touch the cache: its result
+      // belongs to the user who started it.
+      if (!context?.startedBy || context.startedBy !== getSignedInUserId()) return;
+      queryClient.setQueryData<ApplicantProfileType>(profileKey(context.startedBy), updated);
       setEditing(false);
       setSavedNotice(true);
     },

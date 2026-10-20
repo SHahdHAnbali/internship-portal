@@ -4,7 +4,8 @@ import { placementErrorMessage } from '@/features/intern/services/intern-placeme
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, BriefcaseBusiness, CalendarDays, LoaderCircle, MapPin, RotateCw, UserRound } from 'lucide-react';
+import { AlertCircle, Award, BriefcaseBusiness, CalendarDays, LoaderCircle, MapPin, RotateCw, UserRound } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function MyInternship() {
   const query = useMyInternPlacement();
@@ -79,6 +80,22 @@ export default function MyInternship() {
               />
             </CardContent>
           </Card>
+          {placement.status === 'COMPLETED' && (
+            <Card>
+              <CardContent className="flex flex-col items-start justify-between gap-4 py-6 sm:flex-row sm:items-center">
+                <div className="flex items-start gap-3">
+                  <Award className="mt-0.5 size-5 text-primary" />
+                  <div>
+                    <p className="font-semibold">Certificate of Completion</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Your internship is complete. View, print or save your certificate.</p>
+                  </div>
+                </div>
+                <Link to={`/intern/certificates/${placement.id}`}>
+                  <Button type="button" variant="outline">View certificate</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          )}
           <p className="text-xs leading-5 text-muted-foreground">
             If any placement information looks incorrect, contact your HR representative.
           </p>

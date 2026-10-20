@@ -12,6 +12,8 @@ import type {
   User,
 } from '@supabase/supabase-js';
 
+import { setSignedInUserId } from '@/lib/auth-identity';
+import { queryClient } from '@/lib/query-client';
 import { supabase } from '@/lib/supabase';
 
 import {
@@ -83,6 +85,20 @@ export function AuthProvider({
   // a slow load for a previous session cannot overwrite a newer one.
   const loadSequence = useRef(0);
   const profileUserId = useRef<string | null>(null);
+
+  // The user the query cache belongs to (undefined until the first auth
+  // event). When the identity changes (sign-out, another account, a session
+  // that ended) the cache is cleared before anything renders for the new
+  // identity; token refreshes and profile reloads of the same user keep it.
+  const cacheUserId = useRef<string | null | undefined>(undefined);
+  // Also records the user for authenticatedFetch's identity check.
+  const bindCacheToUser = useCallback((userId: string | null) => {
+    if (cacheUserId.current !== undefined && cacheUserId.current !== userId) {
+      queryClient.clear();
+    }
+    cacheUserId.current = userId;
+    setSignedInUserId(userId);
+  }, []);
 
   // Only uses state setters and refs, so it is stable across renders.
   const loadProfile = useCallback(async (
@@ -199,6 +215,7 @@ export function AuthProvider({
             setPasswordRecovery(recoveryUser === nextUser.id);
           }
 
+          bindCacheToUser(nextUser?.id ?? null);
           setSession(nextSession);
           setUser(nextUser);
 
@@ -218,7 +235,7 @@ export function AuthProvider({
     return () => {
       listener.subscription.unsubscribe();
     };
-  }, [loadProfile]);
+  }, [loadProfile, bindCacheToUser]);
 
   // Signs out this browser only. A global sign-out would also end the
   // user's sessions on every other browser and device.
@@ -226,6 +243,7 @@ export function AuthProvider({
     loadSequence.current += 1;
     await supabase.auth.signOut({ scope: 'local' });
 
+    bindCacheToUser(null);
     profileUserId.current = null;
     setSession(null);
     setUser(null);
@@ -235,7 +253,7 @@ export function AuthProvider({
     writeRecoveryUser(null);
     setPasswordRecovery(false);
     setLoading(false);
-  }, []);
+  }, [bindCacheToUser]);
 
   // After a successful reset, or when the person keeps their current password.
   const clearPasswordRecovery = useCallback(() => {

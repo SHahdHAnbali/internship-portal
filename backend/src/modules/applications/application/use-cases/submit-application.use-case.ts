@@ -1,7 +1,6 @@
 import {
-  BadRequestException,
-  ConflictException,
   Injectable,
+  UnauthorizedException,
   InternalServerErrorException,
   Logger,
   NotFoundException,
@@ -16,6 +15,9 @@ import { SupabaseService } from '../../../../infrastructure/database/supabase.se
 import { ApplicationRepository } from '../../domain/repositories/application.repository.js';
 
 import { normalizeReviewEmail } from '../../domain/types/review-email.js';
+import { previousApplicationExists } from '../../domain/types/applicant-eligibility.js';
+import { cvAlreadySubmitted } from '../../domain/types/cv-already-submitted.js';
+import { parseTrainingTarget } from '../../domain/types/training-target.js';
 import { assertApplicationIntakeOpen } from '../../infrastructure/intake/application-intake.js';
 
 import { CvStorageService } from '../../infrastructure/storage/cv-storage.service.js';
@@ -54,31 +56,15 @@ export class SubmitApplicationUseCase {
     internshipId: string | null,
     requestedTraining: string | null,
     file: Express.Multer.File | undefined,
+    // The caller's own Supabase session, if signed in.
+    accessToken: string | null = null,
   ) {
     // 0. Portal intake (ADMIN) before anything else: no parsing, storage or
     //    email while closed. The database re-checks when the draft is inserted.
     await assertApplicationIntakeOpen(this.supabase, 'newApplication');
 
-    const cleanRequestedTraining =
-      requestedTraining?.trim() || null;
-
-    if (
-      !internshipId &&
-      !cleanRequestedTraining
-    ) {
-      throw new BadRequestException(
-        'Please select an internship or enter the training area you are interested in.',
-      );
-    }
-
-    if (
-      internshipId &&
-      cleanRequestedTraining
-    ) {
-      throw new BadRequestException(
-        'Choose either an available internship or another training area, not both.',
-      );
-    }
+    const { requestedTraining: cleanRequestedTraining } =
+      parseTrainingTarget(internshipId, requestedTraining);
 
     this.cvStorageService.assertValidFile(file);
 
@@ -128,21 +114,26 @@ export class SubmitApplicationUseCase {
         cleanRequestedTraining!;
     }
 
-    // 2. Refuse a CV that is already part of an active application for the
-    //    same training, before spending an AI call or storing anything.
+    // 2. Refuse a CV that was already submitted with any application (any
+    //    status, training or applicant), before spending an AI call or
+    //    storing anything. Checked before the one-application rule, so a
+    //    re-used CV is reported as such.
     const cvSha256 =
       createHash('sha256').update(file.buffer).digest('hex');
 
     if (
-      await this.applicationRepository.hasActiveApplicationForCv(
+      await this.applicationRepository.hasSubmittedApplicationForCv(
         cvSha256,
-        internshipId,
-        cleanRequestedTraining,
+        null,
       )
     ) {
-      throw new ConflictException(
-        'This CV has already been submitted for this training.',
-      );
+      throw cvAlreadySubmitted();
+    }
+
+    // Each applicant may apply only once. A signed-in applicant (or intern)
+    // with a submitted application is refused before anything is parsed.
+    if (accessToken) {
+      await this.assertSessionMayApply(accessToken);
     }
 
     // 3. Extract structured CV data before storing anything, so an
@@ -169,6 +160,17 @@ export class SubmitApplicationUseCase {
       throw new UnprocessableEntityException(
         'We could not find a valid email address in your CV. Please add your email address to your CV and try again.',
       );
+    }
+
+    //    The applicant is identified by this address: anyone who already
+    //    submitted an application with it is refused before the CV is stored
+    //    or a review link is sent, whatever the training or CV.
+    if (
+      await this.applicationRepository.hasSubmittedApplication({
+        email: reviewEmail,
+      })
+    ) {
+      throw previousApplicationExists();
     }
 
     // 5. Upload CV
@@ -225,6 +227,29 @@ export class SubmitApplicationUseCase {
       message:
         'Application received successfully.',
     };
+  }
+
+  private async assertSessionMayApply(
+    accessToken: string,
+  ): Promise<void> {
+    const { data, error } =
+      await this.supabase.client.auth.getUser(accessToken);
+    const user = data?.user;
+
+    if (error || !user) {
+      throw new UnauthorizedException(
+        'Your session has expired. Please sign in again.',
+      );
+    }
+
+    if (
+      await this.applicationRepository.hasSubmittedApplication({
+        authUserId: user.id,
+        email: normalizeReviewEmail(user.email),
+      })
+    ) {
+      throw previousApplicationExists();
+    }
   }
 
   private async removeUnsentDraft(

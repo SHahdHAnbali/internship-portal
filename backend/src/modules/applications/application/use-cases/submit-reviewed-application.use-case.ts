@@ -17,6 +17,9 @@ import { SupabaseService } from '../../../../infrastructure/database/supabase.se
 import { ApplicantAccountService } from '../../infrastructure/accounts/applicant-account.service.js';
 import type { ExtractedCvData } from '../../domain/types/extracted-cv-data.js';
 import { normalizeReviewEmail } from '../../domain/types/review-email.js';
+import { previousApplicationExists } from '../../domain/types/applicant-eligibility.js';
+import { cvAlreadySubmitted } from '../../domain/types/cv-already-submitted.js';
+import { ApplicationRepository } from '../../domain/repositories/application.repository.js';
 
 export const ACCOUNT_SIGN_IN_REQUIRED = 'ACCOUNT_SIGN_IN_REQUIRED';
 
@@ -30,6 +33,7 @@ interface ReviewApplicationRow {
   extracted_data: { email?: unknown } | null;
   review_token_expires_at: string | null;
   review_token_used_at: string | null;
+  cv_sha256: string | null;
 }
 
 interface SubmittedReviewRow {
@@ -56,6 +60,7 @@ export class SubmitReviewedApplicationUseCase {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly applicantAccountService: ApplicantAccountService,
+    private readonly applicationRepository: ApplicationRepository,
   ) {}
 
   // accessToken is the caller's own Supabase session, if any. It is required
@@ -85,7 +90,8 @@ export class SubmitReviewedApplicationUseCase {
           review_email,
           extracted_data,
           review_token_expires_at,
-          review_token_used_at
+          review_token_used_at,
+          cv_sha256
         `)
         .eq('review_token_hash', reviewTokenHash)
         .maybeSingle();
@@ -130,8 +136,30 @@ export class SubmitReviewedApplicationUseCase {
 
     const reviewedData: ExtractedCvData = { ...data, email: reviewEmail };
 
+    // A CV already submitted with another application cannot be used again;
+    // checked before the one-application rule, so a re-used CV is reported
+    // as such. Refused before any account is created or verified.
+    if (
+      reviewApplication.cv_sha256 &&
+      (await this.applicationRepository.hasSubmittedApplicationForCv(
+        reviewApplication.cv_sha256,
+        reviewApplication.id,
+      ))
+    ) {
+      throw cvAlreadySubmitted();
+    }
+
+    // One application per applicant, ever: refused before any account is
+    // created or verified, whatever the training or CV.
+    if (await this.applicationRepository.hasSubmittedApplication({ email: reviewEmail })) {
+      throw previousApplicationExists();
+    }
+
     if (accessToken) {
       const authUserId = await this.verifySessionForReview(accessToken, reviewEmail);
+      if (await this.applicationRepository.hasSubmittedApplication({ authUserId, email: reviewEmail })) {
+        throw previousApplicationExists();
+      }
       return this.submit(reviewApplication.id, reviewTokenHash, reviewedData, {
         authUserId,
         accountCreated: false,
@@ -332,6 +360,10 @@ function throwReviewRpcError(error: RpcError): never {
       throw new ForbiddenException(
         'This account cannot be used to submit an applicant application.',
       );
+    case 'previous_application_exists':
+      // Raised under the per-applicant lock (migration 20261021000000), e.g.
+      // when two drafts of the same applicant are submitted at once.
+      throw previousApplicationExists();
     case 'duplicate_application':
       throw new ConflictException(DUPLICATE_APPLICATION_MESSAGE);
     case 'review_email_unavailable':

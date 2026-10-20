@@ -17,8 +17,15 @@ and portal settings.
   internship's requirements (HR makes every decision), training planning (approval,
   capacity, selection release), placements (create, activate, cancel, complete),
   Mentor assignment and an intern progress overview.
-- **Mentors:** their assigned placements and weekly report reviews.
-- **Interns:** dashboard, weekly reports and a read-only profile.
+- **Mentors:** their assigned placements, weekly report reviews, and written evaluations
+  of their interns (one free-text field per evaluation; private drafts, explicit publish).
+- **Interns:** dashboard, weekly reports, the evaluations their Mentor has published, and
+  a read-only profile.
+- **Mentor evaluations** (implemented; migrations `20261018010000_mentor_evaluations.sql` and
+  `20261018020000_mentor_evaluation_idempotency_and_attribution.sql` are applied to the linked
+  project; not yet tested end to end in a browser): see
+  `docs/IMPLEMENTATION_CHECKLIST.md`, "Feature 2026-10-18: Mentor evaluations". HR and
+  Admins have no access to evaluation content or metadata.
 - The former intern task feature has been removed from the portal (2026-10-18). Its
   database tables and history are kept as an archive until a separate migration
   retires the remaining task database functions.
@@ -92,8 +99,11 @@ cd backend && npm run start:dev
 cd frontend && npm run dev
 ```
 
-The backend allows CORS from `http://localhost:5173` and listens on port 3000; both are
-currently hard-coded in `backend/src/main.ts`.
+The backend allows CORS from `http://localhost:5173` and listens on port 3000 by default.
+Both come from the environment (`backend/src/config/http-server.config.ts`): `CORS_ORIGINS`
+(comma-separated exact origins) or else the origin of `FRONTEND_URL`, and `PORT`. With
+`NODE_ENV=production` the backend refuses to start without a valid `https` origin; wildcards
+are never accepted and credentials (cookies) are not enabled.
 
 The first administrator is created once with
 `(cd backend && npm run admin:bootstrap -- --email <email>)` for an account that already
@@ -163,6 +173,38 @@ are not on your `PATH`.
   would send the review link to that address.
 - **Fresh installations** need the base tables and the `cvs` bucket created outside the
   migrations (see [Database](#database)).
+- **Mentor evaluations: request size.** An evaluation may have up to 40,000 Unicode
+  characters (code points), but each save is one JSON request and the backend's global JSON
+  body limit is 100 KiB. Text made mostly of 3- or 4-byte characters (for example many
+  emoji) can therefore be refused before reaching the 40,000-character limit. The browser
+  does not send such a request and explains it; a 413 answer from the server is handled
+  the same way. The text stays in the editor in both cases.
+- **Mentor evaluations: unsaved text is kept only in the browser tab.** While a Mentor has
+  unsaved evaluation text, a temporary copy is kept in that tab's `sessionStorage`, so it can
+  be recovered after the session ends, after sign-out, or after leaving the page; it is shown
+  as local, unsaved text and is never saved automatically. Closing the tab, or a browser that
+  blocks storage, loses it (the editor warns in the second case). Anyone with access to that
+  browser tab can read the copy until it is saved, discarded or the tab is closed. The browser's
+  "Duplicate tab" copies these entries into the new tab; both tabs then hold the same unsaved
+  text independently (creating the same recovered draft in both still creates it only once,
+  see below). If the Mentor can no longer open the evaluation, the text is shown read-only on
+  the placement's page so it can be copied or discarded.
+- **Mentor evaluations: creation is idempotent** (migration `20261018020000`, applied to the linked project).
+  Each new draft has a client id that is also its create request's key; every retry or
+  recovery of that draft reuses it, and the database allows one evaluation per Mentor and key.
+  After an unknown outcome (network failure, 30-second timeout) trying again, or saving the
+  recovered draft, returns or continues the evaluation the earlier request created; it never
+  creates a second one. Separate drafts use separate keys. This is enforced by the database
+  and covered by SQL tests that pass on a throwaway local database (see the checklist).
+- **Cached data and account changes.** When this tab learns that the signed-in user changed
+  or signed out (a Supabase auth event; other tabs relay theirs through the browser), the
+  query cache is cleared, and evaluation data is cached per user. This is not unconditional
+  cross-tab protection: it depends on that event reaching the tab, which has not been tested
+  in a real browser. Private Mentor and intern queries are also keyed by user. As a further
+  safeguard, an API request is not sent at all when the stored
+  session belongs to a different user than the one this tab shows; the request fails instead
+  (the evaluation pages then ask to reload; other pages show their usual error handling). Local evaluation copies (above) are a separate store: they stay in the tab but are
+  only shown to the user who wrote them.
 
 ## Project documentation
 

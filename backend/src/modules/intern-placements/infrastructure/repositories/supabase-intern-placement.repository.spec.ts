@@ -126,6 +126,7 @@ describe('SupabaseInternPlacementRepository RPC adapter', () => {
     ['placement_has_pending_reports', 409, 'A weekly report is waiting for the Mentor’s review. Ask the Mentor to review it first.'],
     ['early_end_reason_required', 400, 'Give a reason for ending the placement before its end date.'],
     ['placement_not_completable', 409, 'Only an active placement can be completed.'],
+    ['certificate_source_incomplete', 409, 'The certificate of completion cannot be issued because the intern’s name or the training title is missing. Correct it, then complete the placement.'],
   ])('maps %s on completion', async (key, status, message) => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: 'PZ409', message: key } });
     const repository = new SupabaseInternPlacementRepository({ client: { rpc } } as never);

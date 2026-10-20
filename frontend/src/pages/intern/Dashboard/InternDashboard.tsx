@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/features/auth/auth-context';
+import { userScopedKey } from '@/lib/query-client';
 import { useMyInternPlacement } from '@/features/intern/hooks/useMyInternPlacement';
 import { placementBadge } from '@/features/intern/placement-status';
 import { MY_REPORTS_KEY, mondayOf, REPORT_STATUS_LABELS } from '@/features/intern/report-weeks';
@@ -113,7 +114,8 @@ function ActivePlacement({ placement }: { placement: MyInternPlacement }) {
 
 // Live weekly-report status, with a link to act on it.
 function WorkSummary() {
-  const reports = useQuery({ queryKey: MY_REPORTS_KEY, queryFn: getMyWeeklyReports, retry: false });
+  const { user } = useAuth();
+  const reports = useQuery({ queryKey: userScopedKey(MY_REPORTS_KEY, user?.id), queryFn: getMyWeeklyReports, retry: false });
   const thisWeek = mondayOf(localIsoDate());
   const currentReport = (reports.data ?? []).find((report) => report.weekStart === thisWeek);
 

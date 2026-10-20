@@ -37,6 +37,17 @@ PostgreSQL binaries (`PG_BIN` if not on PATH).
 | 20261017010000_backfill_applicant_profile_data | One-time, fill-only backfill of `applicants.profile_data` (only where NULL) from the applicant's latest submitted, non-DRAFT application; no schema, function or grant change | Applied + verified 2026-10-17 (owner-authorized; see "Fix 2026-10-17") |
 | 20261017020000_profile_password_setup | `profiles.password_set_at` (nullable) and service_role-only `mark_my_password_set(uuid)` for the required first-time password setup | Applied + verified (owner-authorized) |
 | 20261018000000_retire_intern_task_workflows | Drops the 13 task-only functions; rebuilds `list_my_mentor_placements` and `list_hr_intern_progress` without task columns (HR last activity from the placement row and weekly-report submissions/reviews only); `complete_intern_placement` no longer checks tasks; `intern_tasks` / `intern_task_events` kept with every row as a read-only archive (service_role SELECT only); keeps `intern_task_clean_text` | Applied + verified 2026-10-18 (owner-authorized; see "Feature 2026-10-18") |
+| 20261018010000_mentor_evaluations | `intern_evaluations` (one free-text field, DRAFT/PUBLISHED, revision, published snapshot) and metadata-only `intern_evaluation_events` (one per revision, never any text); guard trigger; Mentor list/get/create/save/publish and intern list/get functions, service_role EXECUTE only; RLS on with no policies | Applied (present in the remote migration history, confirmed read-only before the certificate migrations were applied); SQL tests pass locally |
+| 20261018020000_mentor_evaluation_idempotency_and_attribution | `intern_evaluations.client_request_id` + `create_content_sha256` (unique per author and key, immutable); 4-argument idempotent `create_mentor_evaluation` (3-argument version dropped); Mentor and intern views return the publisher's name; re-created functions keep checks, lock order and service_role-only EXECUTE; postflight checks | Applied (present in the remote migration history, confirmed read-only before the certificate migrations were applied); SQL tests pass locally |
+| 20261019000000_internship_certificates | `internship_certificates` (immutable snapshots, ISSUED/SUPERSEDED, one ISSUED per placement) and metadata-only `internship_certificate_events`; `complete_intern_placement` issues the certificate in the same transaction; HR list/reissue and intern list/get functions (service_role only); backfill for COMPLETED placements | Applied (owner-authorized; applied together by the owner with the Supabase CLI; read-only postflight check afterwards); SQL tests pass locally |
+| 20261020000000_certificate_details | Certificate copies of the placement start date, HR signatory (full name of the completing HR user) and Mentor signatory (full name of the placement's Mentor), never an email; actual duration function; reissue reason on the audit events; guard extended; one-time fill of the new columns on existing certificates. No internship type (the training is the internship title) | Applied (owner-authorized; applied together by the owner with the Supabase CLI; read-only postflight check afterwards); SQL tests pass locally |
+| 20261021000000_one_application_per_applicant | Redefines `submit_application_review_v2` (same signature, return type and privileges): a transaction-scoped advisory lock per review email, so submissions for the same identity run one at a time, and PZ409 `previous_application_exists` when the identity already has any non-DRAFT application (any status, training or CV). No data, index or other object changed | Applied + verified (owner-authorized; remote migration history, live function body MD5 `ff3644e1dce452d6a50ea1d5ad21053f`, unchanged signature, EXECUTE for `service_role` only, not `anon`/`authenticated`); SQL tests pass locally |
+
+### One-time data updates (not migrations)
+
+| Update | What changed | How it was run |
+|---|---|---|
+| CV fingerprint backfill (`applications.cv_sha256`) | The 7 submitted applications created before CV fingerprints were stored (one SELECTED, six NEW) had an empty `cv_sha256`. It was filled with the SHA-256 of each application's stored CV file in the private `cvs` bucket (read-only check beforehand: every file present, size and MD5 matching the stored object, 7 distinct fingerprints, no conflict with `applications_cv_sha256_active_target_key`). Only `cv_sha256` of those 7 rows; no other column, row, file or schema object | Executed manually by the owner as a single transaction in the Supabase Dashboard SQL Editor (the transaction aborts unless the id, status and `cv_path` of each row are as expected, `cv_sha256` is empty, and exactly 7 rows change). Not a migration: nothing was added to `supabase/migrations`, no `supabase db push` was involved, and it is not in the remote migration history |
 
 ## Features
 
@@ -640,6 +651,343 @@ task data as an archive, keep weekly reports working.
   have no access.
 - Not verified: browser or end-to-end use of the portal against the migrated database.
 
+## Feature 2026-10-18: Mentor evaluations
+
+Status: implemented in the repository (Stages 1–3) and reviewed (Stage 4). **Not deployed:** the
+migration has not been applied to the linked project, and nothing has been tested end to end or in
+a browser against a real backend and database. Everything below is verified only by local tests
+with mocked services or a throwaway local PostgreSQL, and by reading the code.
+
+**Product rules.** One free-text field per evaluation (no title, sections, criteria, ratings or
+scores), at most 40,000 Unicode code points; control characters other than tab, LF and CR, NUL and
+lone surrogates are refused. A placement can have several evaluations. The currently assigned,
+active Mentor creates and saves drafts and publishes explicitly; the intern sees only the published
+snapshot, which changes only when the Mentor publishes again. States (from the server): Draft,
+Unpublished changes, Published, with "— placement completed" on completed placements. The Mentor
+reads ACTIVE and COMPLETED placements and writes only on ACTIVE ones. Interns see published
+evaluations of their own ACTIVE and COMPLETED placements. HR and Admin have no access to evaluation
+content or metadata (no route, endpoint or database function). No history view, unpublish, delete
+or PDF.
+
+**Database** (`supabase/migrations/20261018010000_mentor_evaluations.sql`).
+- `intern_evaluations`: working `content` and `revision`, plus the published snapshot
+  (`published_content`, `published_revision`, `published_at`, `published_by_profile_id`,
+  `first_published_at`). Every write adds exactly one revision; a publish copies the saved text into
+  the snapshot at the new revision. A guard trigger refuses any other change (PZE10).
+- `intern_evaluation_events`: one metadata-only event per revision (CREATED / UPDATED / PUBLISHED,
+  actor, time); never any text.
+- Functions (SECURITY INVOKER, pinned `search_path`, EXECUTE for service_role only; RLS enabled with
+  no policies): `list_mentor_evaluations`, `get_mentor_evaluation`, `create_mentor_evaluation`,
+  `save_mentor_evaluation`, `publish_mentor_evaluation`, `list_my_evaluations`,
+  `get_my_evaluation`. Each re-checks role, active status, current Mentor assignment or intern
+  ownership, and placement status. Saves and publishes need the expected revision (a stale one is
+  refused with PZE05 and the current revision in DETAIL). Saving unchanged text records nothing and
+  returns the current row.
+- Write lock order: Mentor profile FOR SHARE → placement FOR UPDATE → evaluation FOR UPDATE.
+
+**Backend** (`backend/src/modules/evaluations/`). Routes (all `Cache-Control: no-store`):
+- MENTOR: `GET /mentor/placements/:placementId/evaluations`,
+  `POST /mentor/placements/:placementId/evaluations {content}` (201),
+  `GET /mentor/evaluations/:evaluationId`,
+  `PUT /mentor/evaluations/:evaluationId {content, expectedRevision}`,
+  `POST /mentor/evaluations/:evaluationId/publish {expectedRevision}` (200).
+- INTERN: `GET /intern/me/evaluations`, `GET /intern/me/evaluations/:evaluationId`.
+- Identity always comes from the verified session (`profiles.id` = Auth user id). Bodies are
+  parsed strictly (unknown fields → 400 `VALIDATION_FAILED`). Errors have the shape
+  `{statusCode, error, code, message[, currentRevision]}` and never contain database text. SQLSTATEs
+  PZE01–PZE10 map to codes; 40P01/40001 map to 409 `EVALUATION_CONCURRENT_UPDATE`. One RPC per
+  request, never retried.
+
+**Frontend.**
+- Mentor: `/mentor/evaluations` (ACTIVE and COMPLETED placements) and
+  `/mentor/evaluations/:placementId` (list + editor). Links: Mentor sidebar, Navbar, and an
+  "Evaluations" button on ACTIVE/COMPLETED cards of the Mentor dashboard.
+- Intern: `/intern/evaluations` (grouped by placement) and `/intern/evaluations/:evaluationId`.
+  Links: intern sidebar and Navbar. Only the published text, date, training and author are shown.
+- Text uses `dir="auto"` for Arabic/English. All wording is in English
+  (`features/evaluations/messages.ts`); localization is still to come.
+- Editor safeguards (`features/evaluations/useEvaluationEditor.ts`): the confirmed server version
+  (text + revision) is kept apart from the text being edited; the edited text is replaced only by an
+  explicit choice ("Replace my text" after a second confirmation, or "Use saved version"). A save
+  sends the confirmed revision; "Unsaved changes" clears only after a confirmed response. Duplicate
+  submissions are blocked. Nothing is retried automatically. A revision conflict offers Copy my
+  text, View latest, Replace my text, Keep my text (the next save then targets the latest revision,
+  only when the Mentor presses Save) and Keep editing. Publishing is possible only when there are
+  no unsaved edits and publishes the saved revision.
+- Unknown outcomes (network failure, timeout after 30 s, unreadable success body): the editor says
+  the outcome is unconfirmed. "Check" makes one uncached read and reports success only if the
+  server shows exactly the expected next revision and text (for a publish: the published snapshot
+  at that revision, published by the current Mentor). Only after a check does "Try again" appear;
+  it resends the exact original request.
+- Leaving the page (in-app navigation), switching evaluations, and browser reload/close ask first
+  while there is unsaved text or a request in progress.
+- Request size: the browser does not send a body over 100 KiB and reports it like a 413; an actual
+  413 answer is shown with the same message; the 40,000-code-point limit is checked separately (the
+  counter and the save button).
+
+**Tests (all local).**
+- SQL: `supabase/tests/sql/170_mentor_evaluations.test.sql`,
+  `171_mentor_evaluations_concurrency.test.sql` (+ helpers in `supabase/tests/fixtures/helpers.sql`).
+  Full `npm run test:db`: 633 passed on local PostgreSQL 18.1 and 17.0 (Stage 1 run, not repeated in
+  Stage 4).
+- Backend: content rules, error mapping, strict body parsing, repository mapping with a mocked
+  Supabase client, and the HTTP authorization matrix (MENTOR/INTERN only; HR, ADMIN, APPLICANT,
+  anonymous refused). Stage 4 run: tsc exit 0; vitest 42 files / 892 tests passed; oxlint exit 0
+  (pre-existing empty-file warnings only).
+- Frontend (mocked services): content rules; service request bodies, no-store, 413 pre-check and
+  413 answer, conflict code with current revision, unknown outcomes, the 30 s timeout (fake
+  timers); query-cache clearing on user change and sign-out; user-scoped evaluation keys and no
+  data after 403/404; local-copy ownership after late confirmations; editor (text kept on failure,
+  during a save, on 413 and on conflict; conflict choices; publish disabled while dirty; published
+  snapshot shown separately; completed placement read-only; checking an unknown outcome; explicit
+  retry of the exact attempt; create); placement page (leave and switch confirmations, completed
+  placement, access error); intern pages (published text only, empty and not-found states); Navbar
+  active-link matching.
+- Not covered by automated tests: the browser reload/close warning (`beforeunload`), the backend's
+  actual 413 response (the 100 KiB limit is Express's default JSON limit, not tested), whether
+  PostgREST passes the PZE SQLSTATEs through on the live project (the backend falls back to the
+  message key), and anything end to end.
+
+**Known limitations.**
+- Request size: 40,000 code points can exceed the 100 KiB JSON body limit (worst case about
+  160 KB for 4-byte characters, plus JSON escaping of quotes, backslashes, tab, LF and CR). Such text
+  must be shortened. A route-scoped larger limit was proposed and not approved; the global limit is
+  unchanged.
+- Concurrency: writes take the lock order above. The three-session test (`171`, T1) observed no
+  deadlock on PostgreSQL 17.0 and 18.1; this is an observation, not a proof of deadlock freedom
+  against every other placement function. A deadlock or serialization failure rolls the whole
+  request back and is reported as 409 `EVALUATION_CONCURRENT_UPDATE`; nothing is retried.
+- Unconfirmed creation: superseded by the idempotent create of migration `20261018020000`
+  (see "Completion pass 2026-10-19"); before it, retrying could create a duplicate.
+- Unsaved-text recovery (added after Stage 4, approved): on a 401 the shared API client clears the
+  local session and the route guard unmounts the editor (sign-out does the same). To survive this,
+  `features/evaluations/local-backup.ts` keeps a copy of unsaved text in `sessionStorage`, one entry
+  per signed-in user and evaluation (or per new draft, by a client draft id), with the placement,
+  the last server-confirmed revision and text, and the local text; no tokens. It is written on
+  every change while the text differs from the server-confirmed version, and removed only when the
+  local text equals a server-confirmed version (confirmed save, an explicit "Replace my text" /
+  "Use saved version") or after an explicit, confirmed discard; never on failure, unknown outcome,
+  conflict, sign-out, unmount or switching. Recovery: reopening the evaluation in the same tab as
+  the same user restores the text, marked "Recovered local, unsaved text"; nothing is saved or
+  published automatically. If the server has a newer revision, the conflict dialog opens and the
+  next save still targets the copy's revision until the Mentor chooses. Limits: the copy is lost
+  when the tab is closed or if the browser blocks storage (the editor then warns); it is readable
+  by anyone using that tab; copies of other users stay in the tab (never shown) until it is
+  closed; backups are not tested in a real browser.
+- Fixes after the final review (2026-10-18, local tests only):
+  - Cross-user cache: the app's query cache (`lib/query-client.ts`) is cleared synchronously by
+    `AuthProvider` when the signed-in user id changes (another account, sign-out, a session that
+    ended), before anything renders for the new identity; token refreshes and repeated events of
+    the same user keep it. Evaluation query keys include the user id
+    (`features/evaluations/query-keys.ts`). After a 401/403/404 the Mentor placement page no
+    longer shows earlier evaluation data (other failed reloads still keep the list and editor);
+    the intern pages already showed only the error state.
+  - Copy ownership: every local-copy write has a unique `writeId`. An editor removes only entries
+    it wrote or restored; once closed (a late confirmation after switching away or a session end)
+    it never writes and removes its own entry only if it holds exactly the confirmed text. A newer
+    copy made by a reopened editor is therefore never removed or overwritten by the closed one.
+    When the closed editor had newer text than its confirmed save, its copy stays at the old
+    revision, so reopening shows the conflict dialog instead of a silent rebase.
+  - Late confirmations: only the editor still shown may change the page's selection.
+  - Completed placements: an unsaved new draft of a placement completed later is still listed
+    ("read-only: placement completed") and opens read-only with Copy text and Discard; nothing
+    can be saved or published.
+  - Timeout: the 30 s abort is tested with fake timers in `evaluations.service.test.ts`.
+  - Remaining cross-user risks: other pages' query keys are not user-scoped and rely on the cache
+    clear; the identity check runs in the auth listener, so it depends on Supabase delivering an
+    auth event for every identity change (not verified in a real browser, including across tabs).
+- Cross-tab identity check (2026-10-18, local tests only): `AuthProvider` records the user this
+  tab shows (`lib/auth-identity.ts`, user id only) on every auth event and on sign-out.
+  `authenticatedFetch` compares it with `session.user.id` from `supabase.auth.getSession()` (the
+  supported client-side way to read the session's user; no token decoding) and sends nothing if
+  either is missing or they differ (another tab signed in as someone else and this tab has no
+  auth event yet). It does not sign out (the stored session is the other tab's current sign-in),
+  logs nothing and puts no token or user id in the error ("You signed in or out in another tab.
+  Reload this page to continue."). Evaluations report it as not applied (`IDENTITY_MISMATCH`): the
+  editor keeps the text and the local copy. It is a client-side consistency check only; the
+  backend still verifies the token and authorizes every request. Limits: the check happens
+  before sending, so a sign-in change during a request in flight is not caught by it (that
+  request carried the matching token; the cache clear and user-scoped keys then apply); it
+  relies on the stored session's user object, which Supabase writes together with the token;
+  untested in a real browser.
+- Small fixes (2026-10-18): after a 401/403/404 closes the editor, the page no longer keeps the
+  leave confirmation or the browser warning armed (the local copy stays). When a closed editor's
+  late save removes the exact copy a reopened editor had restored, the reopened editor (still
+  unsaved relative to its own version) writes its copy again, so its "a copy is kept" notice
+  stays true.
+- Auth/cache follow-ups (2026-10-18, local tests only): the applicant profile query key is
+  user-scoped (`['applicant', 'me', userId]`), and a profile save that finishes after the
+  signed-in user changed no longer writes to the cache. A 401 signs this browser out only if the
+  stored session still belongs to the user who sent the request; a late 401 for a previous user
+  keeps the newer sign-in and fails with the "signed in or out in another tab" message instead.
+- Duplicate tab: the browser's "Duplicate tab" copies `sessionStorage`, including local
+  evaluation copies (with the same write ids). Each tab then works on its own copy; saving the
+  same evaluation in both ends in the normal revision conflict, and creating the same recovered
+  new draft in both creates it once (same create key; see "Completion pass 2026-10-19").
+- The `beforeunload` warning is shown by the browser in its own words and only after the user has
+  interacted with the page; not verified in a real browser.
+
+**Deployment sequence (each step needs separate approval; superseded in detail by "Release
+verification" below).**
+1. Review and commit Stages 1–4.
+2. Dry run against the linked project: it must list exactly `20261018010000_mentor_evaluations.sql`
+   and `20261018020000_mentor_evaluation_idempotency_and_attribution.sql`, in that order.
+3. Read-only preflight: migration history ends at `20261018000000`; no existing objects with the
+   new names; `profiles.id` → `auth.users(id)` foreign key and the role check as assumed.
+4. Apply the one migration; read-only postflight (tables, RLS, no browser grants, function
+   signatures and EXECUTE for service_role only). The migration also runs its own privilege checks.
+5. Deploy the backend (it calls the new functions; before step 4 every evaluation request would
+   fail with 500 `EVALUATION_SERVER_ERROR`).
+6. Deploy the frontend (before step 5 the evaluation pages would show "not available" errors).
+7. Browser walkthrough with a real Mentor and Intern: create, save, conflict from a second tab,
+   publish, republish, intern view, placement completion → read-only.
+
+## Completion pass 2026-10-19: idempotent creation, attribution, hardening (local only)
+
+Nothing here was applied, deployed or tested in a browser. The new SQL tests were written but
+not run (running them starts a local PostgreSQL cluster, which was not approved for this pass).
+
+**Idempotent creation** (migration `20261018020000`, new test `172_…`, updated `170`/`171` calls).
+- Key lifecycle: a new draft gets a UUID client id when the Mentor starts it; the id names its
+  local copy and is the create request's `clientRequestId`. Every retry (timeout, network
+  failure, "Try again"), recovery from the local copy, or a duplicated tab reuses it. A new
+  draft ("New evaluation") gets a new id. After the create is confirmed the id is never used for
+  another create.
+- Database: unique `(author_profile_id, client_request_id)`; the create locks the Mentor
+  profile (FOR SHARE) and the placement (FOR UPDATE) and checks role, active status, current
+  assignment and ACTIVE status first, exactly as before. Then: same key and text → the existing
+  evaluation (no new revision or event); same key, other text, same placement → PZE11 with the
+  evaluation id (the caller is its assigned author); other placement → PZE11 without detail;
+  missing key → PZE12. Concurrent requests with one key: the same placement is serialized by
+  its lock; across placements `INSERT … ON CONFLICT DO NOTHING` waits for the first and then
+  refuses the second. The original text is compared through its SHA-256 only. The key and hash
+  are immutable (guard trigger; no UPDATE grant).
+- API: `POST /mentor/placements/:placementId/evaluations {content, clientRequestId}`
+  (clientRequestId required, a UUID); 409 `EVALUATION_CREATE_KEY_REUSED` (+ `evaluationId`
+  when allowed). Mentor responses include `clientRequestId`.
+- Browser: after an unknown outcome "Try again" is offered at once (safe); "Refresh the list"
+  waits for the refreshed list and recognises the create by its key, or says it is not in the
+  list yet. A reused key with other text (a recovered, edited draft) reads the existing
+  evaluation and continues on it with the local text kept unsaved (and backed up); nothing is
+  created twice.
+
+**Attribution.** The existing columns already separate them: `author_profile_id` (original
+Mentor, immutable) and `published_by_profile_id` / `published_at` (set only by a successful
+publish, in the same UPDATE as the snapshot; a draft save, a failed publish or completion never
+changes them). The Mentor and intern views now also return `published_by_name`; interns see
+"Evaluation by <author>" and, when different, "Published by <publisher>". No new column was
+needed. HR and ADMIN still have no function or route.
+
+**Hardening (audit F-02 … F-17).**
+- CORS/port from the environment with validation (F-04): `config/http-server.config.ts`.
+- Stale same-user 401 (F-05): a 401 for an older token, when the stored session has a newer one
+  for the same user, no longer signs out (reported as "sign-in renewed; nothing changed").
+- Private query keys (F-06): Mentor placements, Mentor weekly reports, intern placement, intern
+  weekly reports and intern profile keys include the user id (prefix unchanged, so existing
+  invalidations still match). HR and Admin keys stay unscoped (organisation data, role-gated).
+- Late evaluation answers after an account switch or sign-out no longer write to the cache (F-07).
+- Unmapped database errors and unexpected result shapes are logged with the function name and a
+  sanitized code only (F-12).
+- Access loss (F-13): the placement page shows the tab's unsaved copies read-only, with Copy and
+  an explicit Discard; the overview links copies of placements that can no longer be opened.
+- Leave warning sets `returnValue` too (F-14).
+- Stale placement state (F-15): when a write is refused because the placement changed
+  (completed, reassigned, not found), the page refreshes; a completed placement turns the editor
+  read-only with the text kept. The server stays authoritative.
+- Unknown-create notice waits for the refresh (F-17).
+- Leftover local copies identical to the server text are removed when the editor opens (only that
+  exact entry).
+- Not changed, with reasons: lock order (F-09) — the evaluation functions keep the approved
+  order, which matches the weekly-report functions; the opposite order in activation/assignment
+  takes only FOR SHARE on the Mentor profile, which PostgreSQL grants without waiting while other
+  sessions also hold FOR SHARE (a waiting FOR UPDATE does not block it), and the three-session
+  test observed no deadlock. Not proven; a deadlock would roll back and return 409. Statement
+  timeouts are not set in this repository's configuration; the live value is unknown. Public
+  review pages (F-16) still reload after another tab's sign-in change (edits stay in the page).
+  Writing the full text on every keystroke was kept (debouncing could lose the last keystrokes).
+- Retention and deletion: `docs/EVALUATION_RETENTION_AND_DELETION.md` (no behaviour change).
+
+**Follow-up fixes (2026-10-19, local only; SQL tests written, not run).**
+- Access errors: a reload refused with `SESSION_RENEWED` or `IDENTITY_MISMATCH` is no longer
+  treated as lost access (the editor and its text stay; the error is shown; nothing retries).
+- Publish attribution: the guard (migration `20261018020000`, applied since; see the migration table) now also refuses a
+  publish whose publisher differs from its last editor; `publish_mentor_evaluation` always sets
+  both to the caller, and no other write changes `published_revision`.
+- Legacy local drafts: a recovered new draft whose id is not a UUID (made by an older build) is
+  never sent; the Mentor is told to check the list first and can explicitly give it a new key.
+- New SQL cases in `172`: a second Mentor using the same key value (K16), retry after
+  reassignment (R1) and after completion (R3), same key with two texts at once (Q3), the
+  publisher invariant (I1–I2); K18 now checks SQLSTATE 23505 instead of a translated message.
+- Lock order (read from the latest definitions): evaluation writes take the Mentor profile
+  FOR SHARE, then the placement FOR UPDATE, then the evaluation; activation and assignment take
+  the placement first and the Mentor profile FOR SHARE later. Two FOR SHARE locks never block
+  each other, and the only exclusive locks on a Mentor profile (admin deactivation or role
+  change, password setup) take no placement lock afterwards, so no wait-for cycle exists in
+  the code. This relies on PostgreSQL's row-lock rules; it is not a runtime proof.
+
+**Release verification (requires separate, explicit authorization for every step).**
+1. Read-only preflight on the linked project: migration history ends at `20261018000000`; no
+   objects named `intern_evaluations*`, `intern_evaluation_events`, `portal_text_is_blank`,
+   `evaluation_text_has_invalid_characters` or `mentor_evaluation_*`; `profiles.id` → `auth.users`,
+   `profiles.role` / `is_active`, `intern_placements.mentor_profile_id` / `status` /
+   `internship_id NOT NULL`; `service_role` has SELECT and UPDATE on `profiles` and
+   `intern_placements` (row locks) and bypasses RLS; `sha256(bytea)` exists (PostgreSQL ≥ 11);
+   note the role's statement timeout.
+2. Migration atomicity: neither file has BEGIN/COMMIT (like every migration here), and this
+   repository does not establish whether the Supabase CLI applies each file in a transaction.
+   Confirm it before applying. Recovery if a file is left partly applied, only while both
+   evaluation tables are still empty (the feature is not deployed, so they are): drop only the
+   evaluation objects of both files — the 14 evaluation functions (any signature), the guard
+   trigger and its function, then `intern_evaluation_events` and `intern_evaluations` — remove
+   any history row recorded for them, and apply both files again. Nothing else is touched. Once
+   the tables contain rows, stop and plan a specific, reviewed repair instead.
+3. An explicitly approved dry run that lists exactly the two evaluation migrations, in order.
+4. Explicit approval, then apply.
+5. Read-only postflight: both tables with RLS on and no policies; no table, column or function
+   privilege for anon/authenticated; `service_role` only SELECT/INSERT plus the listed UPDATE
+   columns; 14 functions (4-argument create), all SECURITY INVOKER with a pinned search_path;
+   guard trigger; unique key constraint; the 3-argument create absent.
+6. Deployment configuration: backend `NODE_ENV=production`, `CORS_ORIGINS` (or `FRONTEND_URL`) =
+   the https frontend origin, `PORT` as needed; backend before frontend.
+7. Browser walkthrough with real Mentor, Intern, HR and ADMIN accounts: create, save, publish,
+   republish; conflict from a second tab; intern sees only the snapshot with author/publisher;
+   reassignment (old Mentor loses access, new one republishes, attribution); HR completes →
+   read-only; HR/ADMIN cannot reach evaluations; leave and reload warnings; session expiry and
+   sign-out recovery; two tabs switching accounts; duplicated tab; access-loss panel.
+8. Real PostgREST checks: each error code (PZE01–PZE12, 40P01/40001) and the `currentRevision` /
+   `evaluationId` details arrive; a request over 100 KiB returns 413 with CORS headers; an
+   unknown-outcome create retried by the browser yields one evaluation; concurrent saves conflict.
+9. Rollback: revert frontend and backend only; keep the tables and their rows. Never apply a
+   destructive rollback to evaluation data.
+
+## Feature 2026-10-20: Certificate of Completion
+
+Status: implemented and tested locally (SQL tests `180_internship_certificates`,
+`190_certificate_details`, backend and frontend tests). Migrations
+`20261019000000` and `20261020000000` are applied to the linked project (owner-authorized, applied
+together; see the migration table). Not yet verified in a browser against live data.
+
+- Wording: "Certificate of Completion / This certificate is proudly presented to / [name] / who
+  completed a [duration] internship as [training title] / at Progineer Technologies" (a title ending
+  in "Internship" reads "who completed the [duration] [title]"), HR and Mentor signature lines (names
+  printed when recorded), completion date (Asia/Hebron). No number or id.
+- Training title: the placement's internship `title` (the internship the applicant chose, or the one
+  HR linked an "Other" request to), copied when issued (`training_title`). No separate type.
+- Company and issuer are always Progineer Technologies (`issuer_name`; frontend
+  `features/certificates/constants.ts`); `intern_placements.company` is never used.
+- Duration: placement `start_date` to the completion date, completion day included
+  (`internship_certificate_duration`); the planned end date is never used.
+- HR signatory: the HR user on the placement's latest COMPLETED event (also after a reissue by
+  another HR user). Mentor signatory: the placement's `mentor_profile_id`. Both copied when issued.
+- Unknown values (duration, signatory names of legacy certificates) stay NULL and are left out;
+  HR sees what is missing in the certificate panel. Reissue reasons are on the audit events.
+- Routes: `GET /intern/me/certificates`, `GET /intern/me/certificates/:placementId`,
+  `GET /hr/placements/:placementId/certificates`, `POST /hr/certificates/:certificateId/reissue`;
+  intern pages `/intern/certificates[/:placementId]` (Print / Save as PDF via the browser).
+- Verify after applying: complete a placement and check the certificate (intern and HR views, print
+  preview one A4 landscape page with the training title); reissue after renaming the internship; a
+  legacy certificate shows no placeholders.
+
 ## Known follow-ups
 
 - Public sign-up: DISABLED on the remote project (resolved 2026-10-16). Verified 2026-10-16 with a
@@ -655,10 +1003,14 @@ task data as an archive, keep weekly reports working.
 - Email: set `EMAIL_FROM` to a sender on a domain verified in Resend before real use (now
   configurable and enforced in production). Dev override
   `APPLICATION_REVIEW_EMAIL_OVERRIDE` is refused unless `NODE_ENV` is development/test.
-- Git (updated 2026-10-16): the project has its own local Git repository at the project root on
-  branch `main`, with no commits and no remote configured yet. Earlier there was no project
-  repository; the only one, `backend/.git`, had no commits and was moved out of the project
-  (kept as a backup outside it) before the root repository was created.
+- Git (updated 2026-10-20): the project repository is at the project root on branch `main`,
+  tracking `origin/main` on GitHub (`https://github.com/SHahdHAnbali/internship-portal.git`). The
+  first commit is `6f06469` (2026-10-16). Snapshot 2026-10-20 after `git fetch`: local `main` and
+  `origin/main` were both at `ec7cab6` (2026-10-18), with the work since then (mentor
+  evaluations, certificates, CV duplicate detection, one application per applicant, and their
+  migrations `20261018010000`–`20261021000000`, already applied to the linked project) still
+  uncommitted. Earlier, the only repository was `backend/.git` (no commits); it was moved out of
+  the project (kept as a backup outside it) before the root repository was created.
 - Shell default is Node 20; the project now declares Node 22 (`.nvmrc`, `engines`). Use `nvm use`.
 - Staff accounts created by an Admin get no invitation email; the admin tells the person to sign in
   at /login with the one-time email link.

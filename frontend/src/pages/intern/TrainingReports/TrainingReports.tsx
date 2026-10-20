@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/features/auth/auth-context';
+import { userScopedKey } from '@/lib/query-client';
 import { AlertCircle, FileText, LoaderCircle, RotateCw, Send } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -25,8 +27,9 @@ const FIELDS: { key: keyof WeeklyReportContent; label: string; hint: string; req
 ];
 
 export default function TrainingReports() {
+  const { user } = useAuth();
   const placement = useMyInternPlacement();
-  const reports = useQuery({ queryKey: MY_REPORTS_KEY, queryFn: getMyWeeklyReports, retry: false });
+  const reports = useQuery({ queryKey: userScopedKey(MY_REPORTS_KEY, user?.id), queryFn: getMyWeeklyReports, retry: false });
   const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
 
   // A completed placement is read-only and its weeks stop at the completion date.

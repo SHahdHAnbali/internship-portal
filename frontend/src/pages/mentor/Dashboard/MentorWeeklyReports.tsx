@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/features/auth/auth-context';
+import { userScopedKey } from '@/lib/query-client';
 import { FileText, LoaderCircle } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -19,8 +21,9 @@ const SECTIONS: { key: 'summary' | 'learnings' | 'challenges' | 'nextWeekPlan'; 
 // Submitted weekly reports of one placement (drafts stay private to the intern).
 // readOnly: a completed placement's reports, without review controls.
 export default function MentorWeeklyReports({ placementId, readOnly = false }: { placementId: string; readOnly?: boolean }) {
+  const { user } = useAuth();
   const reports = useQuery({
-    queryKey: ['mentor', 'weekly-reports', placementId],
+    queryKey: userScopedKey(['mentor', 'weekly-reports', placementId], user?.id),
     queryFn: () => getMentorWeeklyReports(placementId),
     retry: false,
   });

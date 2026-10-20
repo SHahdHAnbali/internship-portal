@@ -1,5 +1,7 @@
 import {
+  Award,
   BriefcaseBusiness,
+  ClipboardCheck,
   FileText,
   LayoutDashboard,
   LogOut,
@@ -17,6 +19,8 @@ const navigation = [
   { label: 'Dashboard', to: '/intern/dashboard', icon: LayoutDashboard },
   { label: 'My Internship', to: '/intern/my-internship', icon: BriefcaseBusiness },
   { label: 'Weekly Reports', to: '/intern/training-reports', icon: FileText },
+  { label: 'Evaluations', to: '/intern/evaluations', icon: ClipboardCheck },
+  { label: 'Certificates', to: '/intern/certificates', icon: Award },
   { label: 'My Profile', to: '/intern/profile', icon: UserRound },
 ];
 

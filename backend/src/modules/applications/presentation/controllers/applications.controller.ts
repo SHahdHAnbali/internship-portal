@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -27,6 +28,8 @@ import type { AuthenticatedRequest } from '../../../../infrastructure/auth/supab
 import { parseOptionalBearerToken } from '../../../../infrastructure/auth/optional-bearer-token.js';
 
 import { SubmitApplicationUseCase } from '../../application/use-cases/submit-application.use-case.js';
+import { CheckCvDuplicateUseCase } from '../../application/use-cases/check-cv-duplicate.use-case.js';
+import { GetApplicantEligibilityUseCase } from '../../application/use-cases/get-applicant-eligibility.use-case.js';
 
 import {
   ExportApplicationsUseCase,
@@ -60,6 +63,7 @@ import { SubmitReviewedApplicationDto } from '../dto/submit-reviewed-application
 import { UpdateApplicationStatusDto } from '../dto/update-application-status.dto.js';
 
 import { SubmitApplicationDto } from '../dto/submit-application.dto.js';
+import { CheckCvDuplicateDto } from '../dto/check-cv-duplicate.dto.js';
 
 import { ListApplicationsQueryDto } from '../dto/list-applications-query.dto.js';
 
@@ -108,6 +112,12 @@ export class ApplicationsController {
 
     private readonly releaseApplicationSelectionUseCase:
       ReleaseApplicationSelectionUseCase,
+
+    private readonly checkCvDuplicateUseCase:
+      CheckCvDuplicateUseCase,
+
+    private readonly getApplicantEligibilityUseCase:
+      GetApplicantEligibilityUseCase,
   ) {}
 
   @Get()
@@ -124,6 +134,21 @@ export class ApplicationsController {
   @Get('intake')
   getApplicationIntake() {
     return this.getApplicationIntakeUseCase.execute();
+  }
+
+  // Signed-in user (any role): may they start an application? Each applicant
+  // may apply only once; the upload and the final submission enforce it.
+  // Declared before ':id' so "eligibility" is never parsed as an application id.
+  @Get('eligibility')
+  @UseGuards(SupabaseAuthGuard)
+  getApplicantEligibility(
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const authUser = request.authUser;
+    if (!authUser) {
+      throw new UnauthorizedException('Authentication required');
+    }
+    return this.getApplicantEligibilityUseCase.execute(authUser);
   }
 
   // HR releases a selection: frees its seat; final for this application.
@@ -268,7 +293,26 @@ export class ApplicationsController {
     );
   }
 
-  // Public: creates only a DRAFT and emails a one-time review link.
+  // Public, read-only: was this CV (by its SHA-256, computed in the browser)
+  // already submitted with an application, so it cannot be used again? Lets
+  // the Apply page say so before uploading; POST /applications/submit still
+  // enforces it.
+  @Post('cv-check')
+  @HttpCode(200)
+  checkCvDuplicate(
+    @Body()
+    dto: CheckCvDuplicateDto,
+  ) {
+    return this.checkCvDuplicateUseCase.execute(
+      dto.cvSha256,
+      dto.internshipId ?? null,
+      dto.requestedTraining ?? null,
+    );
+  }
+
+  // Public: creates only a DRAFT and emails a one-time review link. A
+  // signed-in caller's session is also checked against the one-application
+  // rule.
   @Post('submit')
   @UseInterceptors(
     FileInterceptor('cv', {
@@ -282,11 +326,15 @@ export class ApplicationsController {
 
     @Body()
     dto: SubmitApplicationDto,
+
+    @Headers('authorization')
+    authorization: string | undefined,
   ) {
     return this.submitApplicationUseCase.execute(
       dto.internshipId ?? null,
       dto.requestedTraining ?? null,
       file,
+      parseOptionalBearerToken(authorization),
     );
   }
 

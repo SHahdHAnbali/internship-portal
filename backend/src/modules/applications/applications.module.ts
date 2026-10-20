@@ -30,6 +30,8 @@ import { ParseCvUseCase } from './application/use-cases/parse-cv.use-case.js';
 import { CvTextExtractorService } from './infrastructure/parsing/cv-text-extractor.service.js';
 
 import { SubmitApplicationUseCase } from './application/use-cases/submit-application.use-case.js';
+import { CheckCvDuplicateUseCase } from './application/use-cases/check-cv-duplicate.use-case.js';
+import { GetApplicantEligibilityUseCase } from './application/use-cases/get-applicant-eligibility.use-case.js';
 
 import { GetApplicationReviewUseCase } from './application/use-cases/get-application-review.use-case.js';
 
@@ -78,6 +80,8 @@ import { GetApplicantProfileUseCase } from './application/use-cases/get-applican
     UpdateApplicantProfileUseCase,
     ParseCvUseCase,
     SubmitApplicationUseCase,
+    CheckCvDuplicateUseCase,
+    GetApplicantEligibilityUseCase,
     GetApplicationReviewUseCase,
     CvStorageService,
     CvTextExtractorService,

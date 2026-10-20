@@ -30,6 +30,8 @@ import { useState } from 'react';
     ACCOUNT_SIGN_IN_REQUIRED,
     getApplicationReview,
     APPLICATIONS_CLOSED,
+    CV_ALREADY_SUBMITTED,
+    PREVIOUS_APPLICATION_EXISTS,
     REVIEW_LINK_EXPIRED,
     REVIEW_LINK_NOT_FOUND,
     REVIEW_LINK_USED,
@@ -42,6 +44,8 @@ import { useState } from 'react';
     ExtractedCvData,
   } from '@/features/applications/types';
   import { cvTextList } from '@/features/applications/cv-text';
+  import CvCheckNotice from '@/features/applications/components/CvCheckNotice';
+  import { cvCheckAllowsSubmit, type CvCheckView } from '@/features/applications/cv-check';
   
   // Lists are reduced to strings (e.g. "English — Advanced") so structured
   // entries from the extraction are kept and pass the server's validation.
@@ -95,6 +99,16 @@ import { useState } from 'react';
     [REVIEW_LINK_NOT_FOUND]: {
       title: 'This link is not valid',
       body: 'Please check that you opened the full link from your email.',
+    },
+    [CV_ALREADY_SUBMITTED]: {
+      title: 'This CV has already been submitted',
+      body: 'This CV file was already submitted with an application, so it cannot be used for another application. Please apply again with a different CV.',
+      action: { to: '/apply', label: 'Apply with a different CV' },
+    },
+    [PREVIOUS_APPLICATION_EXISTS]: {
+      title: 'You have already applied',
+      body: 'Our records show that you have already submitted an application. Each applicant can apply only once, so this application cannot be submitted. Sign in to follow your existing application.',
+      action: { to: '/login', label: 'Go to Sign In' },
     },
     [APPLICATIONS_CLOSED]: {
       title: 'Applications are currently closed',
@@ -150,6 +164,11 @@ import { useState } from 'react';
     const [signInRequired, setSignInRequired] =
       useState(false);
 
+    // Refused at the final submission for good (CV already submitted, or the
+    // applicant has already applied): the matching explanation replaces the form.
+    const [blockedCode, setBlockedCode] =
+      useState<string | null>(null);
+
     const updateField = (
       field:
         | 'fullName'
@@ -168,8 +187,17 @@ import { useState } from 'react';
       });
     };
 
+    // The final submission refuses a CV that was already submitted; say so
+    // before the applicant reviews everything (same feedback as the Apply
+    // page), and do not offer a submit that cannot succeed or that has not
+    // been checked. An earlier upload elsewhere is only a warning.
+    const cvCheckView: CvCheckView = review
+      ? (review.cvCheck ?? { status: 'failed' })
+      : { status: 'idle' };
+    const duplicateCheckBlocksSubmit = !cvCheckAllowsSubmit(cvCheckView);
+
     const handleFinalSubmit = async () => {
-      if (!reviewToken || !form || isSubmitting) {
+      if (!reviewToken || !form || isSubmitting || duplicateCheckBlocksSubmit) {
         return;
       }
 
@@ -193,6 +221,15 @@ import { useState } from 'react';
 
         setSubmitted(true);
       } catch (err) {
+        if (
+          err instanceof ReviewSubmissionError &&
+          (err.code === CV_ALREADY_SUBMITTED ||
+            err.code === PREVIOUS_APPLICATION_EXISTS)
+        ) {
+          setBlockedCode(err.code);
+          return;
+        }
+
         setSignInRequired(
           err instanceof ReviewSubmissionError &&
             err.code === ACCOUNT_SIGN_IN_REQUIRED,
@@ -261,9 +298,10 @@ import { useState } from 'react';
       );
     }
 
-    if (!reviewToken || reviewQuery.isError || !review || !form) {
-      const code =
-        reviewQuery.error instanceof ReviewSubmissionError
+    if (blockedCode || !reviewToken || reviewQuery.isError || !review || !form) {
+      const code = blockedCode
+        ? blockedCode
+        : reviewQuery.error instanceof ReviewSubmissionError
           ? reviewQuery.error.code
           : null;
       const state = code ? LINK_STATES[code] : undefined;
@@ -326,6 +364,12 @@ import { useState } from 'react';
         </div>
   
         <div className="mx-auto max-w-5xl space-y-8 px-6 py-10">
+          <CvCheckNotice
+            view={cvCheckView}
+            onRetry={() => void reviewQuery.refetch()}
+            retrying={reviewQuery.isFetching}
+          />
+
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
@@ -611,7 +655,7 @@ import { useState } from 'react';
             <Button
               size="lg"
               onClick={handleFinalSubmit}
-              disabled={isSubmitting}
+              disabled={isSubmitting || duplicateCheckBlocksSubmit}
             >
               {isSubmitting ? (
                 <>

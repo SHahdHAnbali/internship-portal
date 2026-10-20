@@ -5,13 +5,20 @@ import {
 import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from './app.module.js';
+import { resolveHttpServerSettings } from './config/http-server.config.js';
 
 async function bootstrap() {
   const app =
     await NestFactory.create(AppModule);
 
+  // Read after the app is created: ConfigModule has loaded .env by then.
+  // Invalid or (in production) missing settings stop the start-up.
+  const { corsOrigins, port } =
+    resolveHttpServerSettings(process.env);
+
   app.enableCors({
-    origin: 'http://localhost:5173',
+    origin: corsOrigins,
+    credentials: false,
   });
 
   app.useGlobalPipes(
@@ -21,10 +28,10 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(3000);
+  await app.listen(port);
 
   console.log(
-    'Backend running on http://localhost:3000',
+    `Backend listening on port ${port}`,
   );
 }
 

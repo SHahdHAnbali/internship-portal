@@ -85,6 +85,13 @@ export interface ExtractedCvData {
   };
 }
 
+export type ReviewCvCheck =
+  | { status: 'checked'; duplicate: boolean; previouslyUploaded: boolean }
+  // The check could not be completed: never treated as "no duplicate".
+  | { status: 'failed' }
+  // Uploaded before CV fingerprints were stored: checked only on submission.
+  | { status: 'unavailable' };
+
 export interface ApplicationReview {
   applicationId: string;
 
@@ -97,6 +104,11 @@ export interface ApplicationReview {
   } | null;
 
   requestedTraining: string | null;
+
+  // This draft's CV, checked when the review is loaded: whether the final
+  // submission would refuse it as a duplicate for this training, and (warning
+  // only) whether the same file was uploaded before for any application.
+  cvCheck: ReviewCvCheck;
 
   extractedData: ExtractedCvData;
 }

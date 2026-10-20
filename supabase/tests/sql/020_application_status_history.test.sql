@@ -127,9 +127,10 @@ INSERT INTO public.applications (id, status, internship_id, requested_training, 
  ('00000000-0000-0000-0000-0000000000d2','DRAFT','00000000-0000-0000-0000-0000000000a1',NULL,'second@x.com','{"email":"second@x.com"}', public.t_hash('tok-second'), now()+interval '1 hour','cv/d2.pdf', repeat('a',64)),
  ('00000000-0000-0000-0000-0000000000d3','DRAFT','00000000-0000-0000-0000-0000000000a1',NULL,'third@x.com','{"email":"third@x.com"}', public.t_hash('tok-third'), now()+interval '1 hour','cv/d3.pdf', repeat('a',64));
 SET ROLE service_role;
-SELECT public.t_expect_error('D1 same applicant cannot submit the same "Other" training twice (case/space-insensitive)',
+-- Since 20261021000000 this applicant (who already has submitted applications) is refused for any training.
+SELECT public.t_expect_error('D1 same applicant cannot submit the same "Other" training again (already applied)',
   $q$SELECT * FROM public.submit_application_review_v2(public.t_hash('tok-dup-other'), '{"email":"applicant@x.com","fullName":"A"}', '00000000-0000-0000-0000-000000000002', false)$q$,
-  'duplicate_application');
+  'previous_application_exists');
 SELECT public.t_expect_ok('D2 new applicant submits; history records DRAFT -> NEW',
   $q$SELECT * FROM public.submit_application_review_v2(public.t_hash('tok-second'), '{"email":"second@x.com","fullName":"Second"}', '00000000-0000-0000-0000-000000000004', true)$q$);
 SELECT public.t_check('D2 submission event attributed to the applicant',

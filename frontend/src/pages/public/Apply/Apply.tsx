@@ -7,6 +7,7 @@ import {
 } from 'react';
 
 import {
+  ArrowLeft,
   BriefcaseBusiness,
   CheckCircle2,
   ClipboardCheck,
@@ -27,13 +28,35 @@ import {
 
 import { Input } from '@/components/ui/input';
 
-import { getApplicationIntake, submitApplication } from '@/features/applications/services/applications.service';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+import {
+  getApplicationEligibility,
+  getApplicationIntake,
+  PREVIOUS_APPLICATION_EXISTS,
+  ReviewSubmissionError,
+  submitApplication,
+} from '@/features/applications/services/applications.service';
+
+import { useAuth } from '@/features/auth/auth-context';
+
+import { ROLE_HOME } from '@/features/auth/role-home';
+
+import {
+  cvCheckQueryKey,
+  useCvDuplicateCheck,
+} from '@/features/applications/hooks/useCvDuplicateCheck';
+
+import CvCheckNotice from '@/features/applications/components/CvCheckNotice';
+
+import { cvCheckAllowsSubmit } from '@/features/applications/cv-check';
 
 import { getInternships } from '@/features/internships/services/internships.service';
 
 import type { Internship } from '@/features/internships/types';
 
 import {
+  Link,
   useSearchParams,
 } from 'react-router-dom';
 
@@ -84,8 +107,35 @@ const internshipIdFromUrl =
   const [intakeClosed, setIntakeClosed] =
     useState(false);
 
+  // Each applicant may apply only once. Set when the server refuses the
+  // upload because the applicant has already submitted an application.
+  const [alreadyApplied, setAlreadyApplied] =
+    useState(false);
+
+  // A signed-in applicant (or intern) is checked before the form is shown;
+  // a guest is identified by the email in their CV when they upload it. The
+  // server enforces the rule either way.
+  const { user, role, loading: authLoading } = useAuth();
+  const eligibility = useQuery({
+    queryKey: ['applications', 'eligibility', user?.id ?? null],
+    queryFn: getApplicationEligibility,
+    enabled: Boolean(user),
+    retry: false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+
   const isOther =
     trainingSelection === OTHER_VALUE;
+
+  const queryClient = useQueryClient();
+
+  // Checked as soon as a CV and a training are chosen, before submitting.
+  const cvCheck = useCvDuplicateCheck(
+    cv,
+    trainingSelection && !isOther ? trainingSelection : null,
+    isOther ? requestedTraining : null,
+  );
 
     useEffect(() => {
       const loadInternships =
@@ -227,6 +277,12 @@ const internshipIdFromUrl =
       return;
     }
 
+    // The server checks again; this only stops a submission the applicant
+    // has already been told will be refused, or one not yet checked.
+    if (!cvCheckAllowsSubmit(cvCheck.view)) {
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setError(null);
@@ -253,11 +309,22 @@ const internshipIdFromUrl =
       setTrainingSelection('');
       setRequestedTraining('');
     } catch (err) {
+      if (
+        err instanceof ReviewSubmissionError &&
+        err.code === PREVIOUS_APPLICATION_EXISTS
+      ) {
+        setAlreadyApplied(true);
+        return;
+      }
+
       setError(
         err instanceof Error
           ? err.message
           : 'Unable to submit your application.',
       );
+      // A duplicate found only now (another application was submitted in the
+      // meantime): the next check must ask the server again.
+      void queryClient.invalidateQueries({ queryKey: cvCheckQueryKey });
       // Intake may have closed while the form was open.
       void getApplicationIntake()
         .then((intake) => setIntakeClosed(!intake.applicationsOpen))
@@ -273,9 +340,14 @@ const internshipIdFromUrl =
     (!isOther ||
       Boolean(
         requestedTraining.trim(),
-      ));
+      )) &&
+    cvCheckAllowsSubmit(cvCheck.view);
 
-  if (isLoading) {
+  if (
+    isLoading ||
+    authLoading ||
+    (Boolean(user) && eligibility.isPending)
+  ) {
     return (
       <div className="flex min-h-[70vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -283,10 +355,62 @@ const internshipIdFromUrl =
     );
   }
 
+  if (alreadyApplied || eligibility.data?.canApply === false) {
+    const home = user && role ? ROLE_HOME[role] : '/login';
+    return (
+      <main className="min-h-screen bg-muted/30 px-6 py-16">
+        <div className="mx-auto max-w-2xl">
+          <BackToWebsiteLink className="mb-6" />
+          <Card className="border-border/60 shadow-sm">
+            <CardContent className="px-8 py-12 text-center">
+              <h1 className="text-2xl font-semibold">You have already applied</h1>
+              <p className="mx-auto mt-4 max-w-lg text-sm leading-6 text-muted-foreground">
+                Our records show that you have already submitted an application. Each applicant can apply only once, so another application cannot be submitted, whichever training or CV you choose.
+              </p>
+              <Link to={home} className="mt-8 inline-block">
+                <Button>{user ? 'Go to my account' : 'Sign in to follow your application'}</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    );
+  }
+
+  // A failed eligibility check is never treated as "may apply".
+  if (user && eligibility.isError) {
+    return (
+      <main className="min-h-screen bg-muted/30 px-6 py-16">
+        <div className="mx-auto max-w-2xl">
+          <BackToWebsiteLink className="mb-6" />
+          <Card className="border-border/60 shadow-sm">
+            <CardContent className="px-8 py-12 text-center">
+              <h1 className="text-2xl font-semibold">We could not check your account</h1>
+              <p role="alert" className="mx-auto mt-4 max-w-lg text-sm leading-6 text-muted-foreground">
+                We could not check whether you can apply. Check your connection and try again.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-8"
+                disabled={eligibility.isFetching}
+                onClick={() => void eligibility.refetch()}
+              >
+                {eligibility.isFetching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Try again
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    );
+  }
+
   if (intakeClosed) {
     return (
       <main className="min-h-screen bg-muted/30 px-6 py-16">
         <div className="mx-auto max-w-2xl">
+          <BackToWebsiteLink className="mb-6" />
           <Card className="border-border/60 shadow-sm">
             <CardContent className="px-8 py-12 text-center">
               <h1 className="text-2xl font-semibold">Applications are currently closed</h1>
@@ -304,6 +428,7 @@ const internshipIdFromUrl =
     return (
       <main className="min-h-screen bg-muted/30 px-6 py-16">
         <div className="mx-auto max-w-2xl">
+          <BackToWebsiteLink className="mb-6" />
           <Card className="border-border/60 shadow-sm">
             <CardContent className="px-8 py-12 text-center">
               <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
@@ -402,6 +527,7 @@ const internshipIdFromUrl =
     <main className="min-h-screen bg-muted/30">
       <div className="border-b bg-background">
         <div className="mx-auto max-w-6xl px-6 py-14">
+          <BackToWebsiteLink className="mb-8" />
           <div className="max-w-3xl">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm text-muted-foreground">
               <BriefcaseBusiness className="h-4 w-4" />
@@ -661,6 +787,12 @@ const internshipIdFromUrl =
                     </Button>
                   </div>
                 )}
+
+                <CvCheckNotice
+                  view={cvCheck.view}
+                  onRetry={cvCheck.retry}
+                  retrying={cvCheck.retrying}
+                />
               </div>
 
               {error && (
@@ -779,5 +911,18 @@ function Step({
         </p>
       </div>
     </div>
+  );
+}
+
+// Back to the public website's home page ("/").
+function BackToWebsiteLink({ className = '' }: { className?: string }) {
+  return (
+    <Link
+      to="/"
+      className={`inline-flex items-center gap-2 text-sm font-medium text-muted-foreground transition hover:text-foreground ${className}`}
+    >
+      <ArrowLeft className="h-4 w-4" />
+      Back to website
+    </Link>
   );
 }

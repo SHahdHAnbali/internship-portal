@@ -36,6 +36,8 @@ import {
 
 import { MentorsModule } from './modules/mentors/mentors.module.js';
 import { WeeklyReportsModule } from './modules/weekly-reports/weekly-reports.module.js';
+import { EvaluationsModule } from './modules/evaluations/evaluations.module.js';
+import { CertificatesModule } from './modules/certificates/certificates.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { AccountModule } from './modules/account/account.module.js';
 
@@ -66,6 +68,10 @@ import { AccountModule } from './modules/account/account.module.js';
     MentorsModule,
 
     WeeklyReportsModule,
+
+    EvaluationsModule,
+
+    CertificatesModule,
 
     AdminModule,
 

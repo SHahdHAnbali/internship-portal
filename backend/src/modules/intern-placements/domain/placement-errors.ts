@@ -22,6 +22,9 @@ const MESSAGES: Record<string, () => Error> = {
   placement_not_completable: () => new ConflictException('Only an active placement can be completed.'),
   early_end_reason_required: () => new BadRequestException('Give a reason for ending the placement before its end date.'),
   completion_note_too_long: () => new BadRequestException('The note is too long.'),
+  // Completion issues the certificate in the same transaction; without the
+  // intern's name or the training title nothing is completed.
+  certificate_source_incomplete: () => new ConflictException('The certificate of completion cannot be issued because the intern’s name or the training title is missing. Correct it, then complete the placement.'),
   // Raised by the database until the task retirement migration removes the
   // legacy task check; tasks can no longer be closed from the portal.
   placement_has_open_tasks: () => new ConflictException('This placement still has open tasks from the retired task feature, so it cannot be completed until the pending database update is applied.'),

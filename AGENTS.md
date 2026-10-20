@@ -246,6 +246,10 @@ is_active
 created_at
 ```
 
+`title` identifies the specific training (e.g. `Frontend Developer`). There is no separate training
+type or category: certificates state the training by the placement's internship title, copied when
+the certificate is issued (`internship_certificates.training_title`).
+
 ---
 
 ### `internship_requirements`
@@ -289,8 +293,9 @@ Use signed URLs for private HR CV access.
 
 ## Applicant Application Flow
 
-Current flow (verified against the code on 2026-10-16; account provisioning is deferred
-until the reviewed application is submitted):
+Current flow (verified against the code on 2026-10-16, duplicate-CV and one-application
+checks updated 2026-10-20; account provisioning is deferred until the reviewed application
+is submitted):
 
 ```text
 Applicant opens Apply page
@@ -300,11 +305,16 @@ Selects internship OR chooses Other
 Uploads CV (POST /applications/submit)
         ↓
 Backend checks that application intake is open, validates the file and
-refuses the same CV for the same training target (HTTP 409)
+refuses a CV already submitted with any application (HTTP 409
+CV_ALREADY_SUBMITTED), then a signed-in caller who already applied
+(HTTP 409 PREVIOUS_APPLICATION_EXISTS)
         ↓
 CV text is extracted and parsed
         ↓
 A valid email address must be found in the CV (otherwise HTTP 422; nothing is stored)
+        ↓
+An applicant with that email who already submitted an application is
+refused (HTTP 409 PREVIOUS_APPLICATION_EXISTS; nothing is stored)
         ↓
 CV is stored in the private cvs bucket; DRAFT application is created
 with a hashed, expiring, one-time review token. No Auth user, profiles
@@ -330,7 +340,8 @@ Application becomes NEW
 Code: `submit-application.use-case.ts`, `submit-reviewed-application.use-case.ts`,
 `applicant-account.service.ts` (backend `modules/applications`) and
 `submit_application_review_v2` (latest definition in
-`supabase/migrations/20261014000000_capacity_selection_and_intake.sql`).
+`supabase/migrations/20261021000000_one_application_per_applicant.sql`, applied to the linked
+project).
 
 Applicant-facing UI must not mention AI.
 
@@ -552,15 +563,31 @@ Intern (`RoleGuard` for `INTERN`, via `InternRoute`):
 /intern/dashboard
 /intern/my-internship
 /intern/training-reports
+/intern/evaluations
+/intern/evaluations/:evaluationId
+/intern/certificates
+/intern/certificates/:placementId
 /intern/profile
 ```
+
+The certificate routes depend on migrations `20261019000000_internship_certificates.sql` and
+`20261020000000_certificate_details.sql`, which are applied to the linked project (not yet
+verified in a browser against live data); see `docs/IMPLEMENTATION_CHECKLIST.md`, "Feature 2026-10-20: Certificate of Completion".
 
 Mentor (`RoleGuard` for `MENTOR`):
 
 ```text
 /mentor                      (dashboard)
 /mentor/dashboard
+/mentor/evaluations
+/mentor/evaluations/:placementId
 ```
+
+The evaluation routes (added 2026-10-18) depend on migrations
+`20261018010000_mentor_evaluations.sql` and
+`20261018020000_mentor_evaluation_idempotency_and_attribution.sql`, which are applied to the
+linked project (not yet verified in a browser against live data); see
+`docs/IMPLEMENTATION_CHECKLIST.md`, "Feature 2026-10-18: Mentor evaluations".
 
 Source: `frontend/src/app/router.tsx` (verified 2026-10-16). These routes and the matching
 Navbar entries (marked "implemented" under Dynamic Navigation) exist in the code. That only
@@ -627,6 +654,8 @@ Home
 Dashboard
 My Internship
 Weekly Reports
+Evaluations
+Certificates
 Sign Out
 ```
 
@@ -634,8 +663,13 @@ Sign Out
 
 ```text
 Assigned Interns
+Evaluations
 Sign Out
 ```
+
+When several Navbar links match the current path (for example `/mentor` and
+`/mentor/evaluations`), only the longest match is highlighted
+(`frontend/src/components/layout/Navbar/navigation-match.ts`).
 
 Source: `frontend/src/components/layout/Navbar/Navbar.tsx` (verified 2026-10-16).
 
@@ -796,32 +830,76 @@ Do not remove legacy data until migrations are confirmed safe.
 
 ## Duplicate CV Protection
 
-Implemented (verified in the repository 2026-10-16) by migration
-`supabase/migrations/20261011000000_application_data_and_status_history.sql`
-(`applications.cv_sha256` and the unique partial index
-`applications_cv_sha256_active_target_key`), the upload pre-check
-`hasActiveApplicationForCv` (HTTP 409, `submit-application.use-case.ts`), and a re-check in
-`submit_application_review_v2` (`duplicate_application`).
-
-Scope: it blocks a byte-identical CV file (same SHA-256) for the same training target
-(listed internship, or the normalized "Other" text) while another application with that
-file is not `DRAFT` or `REJECTED`. It does not detect edited or re-exported CVs, and
-applications created before the migration have no stored hash.
-
-Design:
+Current rule (updated 2026-10-20): a CV counts as previously submitted when its SHA-256
+fingerprint matches the CV of **any submitted application** (any status other than `DRAFT`,
+any training, any applicant). Such a CV cannot be used for another application and is refused
+with HTTP 409 and code `CV_ALREADY_SUBMITTED`:
 
 ```text
-SHA-256(file.buffer)
-        ↓
-applications.cv_sha256
-        ↓
-unique partial index
+This CV has already been submitted with an application, so it cannot be used for another
+application. Please upload a different CV.
 ```
 
-Use both:
+Where it is checked (backend, `modules/applications`):
 
-- pre-check for friendly error messages
-- database unique constraint/index for race-condition safety
+- `POST /applications/cv-check` (public, read-only): the Apply page sends the browser-computed
+  fingerprint and gets `duplicate` (the rule above) and `previouslyUploaded` (warning only:
+  the same file was uploaded before, drafts included). Only these two yes/no answers are
+  returned, never who uploaded the file or for which training.
+- `POST /applications/submit`: refused before the CV is parsed, stored or emailed.
+- `GET /applications/review/:reviewToken` and the final submission: the draft's own file is
+  checked against the other submitted applications.
+- Repository method: `hasSubmittedApplicationForCv`. The old same-training pre-check
+  (`hasActiveApplicationForCv`) no longer exists.
+
+Database: `applications.cv_sha256` and the unique partial index
+`applications_cv_sha256_active_target_key` (migration
+`20261011000000_application_data_and_status_history.sql`) still reject, atomically, the same
+CV active twice for the same training; `submit_application_review_v2` re-checks that case
+(`duplicate_application`). The broader any-training rule above is enforced by the backend.
+
+Limits: only byte-identical files match (an edited or re-exported CV is a different file).
+The 7 applications submitted before fingerprints were stored got theirs from a one-time manual
+backfill in the Supabase SQL Editor (a data update, not a migration); see
+`docs/IMPLEMENTATION_CHECKLIST.md`, "One-time data updates".
+
+The duplicate-CV check runs first and is separate from the one-application rule below: it is
+about the file, not the person.
+
+---
+
+## One Application per Applicant
+
+Current rule (migration `20261021000000_one_application_per_applicant.sql`, applied to the
+linked project): an applicant may submit only **one application across all trainings**. Once
+an application has been submitted (any status other than `DRAFT`: `NEW`, `UNDER_REVIEW`,
+`SHORTLISTED`, `INTERVIEW`, `SELECTED` or `REJECTED`), the applicant can never submit another,
+whatever the training or CV. A `DRAFT` (an upload whose review was not submitted) does not
+count. A refusal is HTTP 409 with code `PREVIOUS_APPLICATION_EXISTS`:
+
+```text
+You have already submitted an application. Each applicant can apply only once, so another
+application cannot be submitted. Sign in to follow your existing application.
+```
+
+The applicant is identified by their account and email (`applicants.auth_user_id`,
+`applicants.email`, `applications.review_email`), never by the CV. Checked by:
+
+- `GET /applications/eligibility` (signed-in user, own session only), so the Apply page can
+  say so before the form;
+- `POST /applications/submit` (the signed-in caller's account, and the email found in the CV);
+- `GET /applications/review/:reviewToken` and the final submission (before any account is
+  created);
+- `submit_application_review_v2`, atomically: a per-email advisory lock, so concurrent
+  submissions of different drafts by the same applicant cannot both succeed, and
+  PZ409 `previous_application_exists`.
+
+Repository method: `hasSubmittedApplication`. Limit: a person using a different email address
+is a different applicant to the system.
+
+The two rules are separate checks with different purposes: duplicate-CV detection stops a CV
+file from being reused, the one-application rule stops a person from applying twice. When both
+apply, `CV_ALREADY_SUBMITTED` is reported.
 
 ---
 
@@ -905,17 +983,12 @@ Authorization: Bearer eyJ...
 
 ## Backend CORS
 
-Current backend allows the frontend origin:
-
-```ts
-app.enableCors({
-  origin: 'http://localhost:5173',
-});
-```
-
-Keep this during local development.
-
-Production origins should be configured separately later.
+Allowed origins and the port come from the environment
+(`backend/src/config/http-server.config.ts`, documented in `backend/.env.example`):
+`CORS_ORIGINS` (comma-separated exact origins), else the origin of `FRONTEND_URL`, else (only
+outside production) `http://localhost:5173`; `PORT` defaults to 3000. In production a valid
+`https` origin is required or the backend refuses to start. Never use a wildcard origin and do
+not enable credentials; the API uses bearer tokens.
 
 ---
 

@@ -28,6 +28,7 @@ import {
   type HrInternPlacement,
 } from '@/features/hr/services/intern-placement.service';
 
+import PlacementCertificates from './PlacementCertificates';
 import PlacementHistory from './PlacementHistory';
 import PlacementMentorAssignment from './PlacementMentorAssignment';
 
@@ -182,6 +183,10 @@ function PlacementContent({
             )}
           </div>
 
+          {placement.status === 'COMPLETED' && (
+            <PlacementCertificates applicationId={application.id} placementId={placement.id} />
+          )}
+
           <PlacementMentorAssignment
             key={`${placement.id}:${placement.mentorProfileId ?? 'unassigned'}`}
             applicationId={application.id}
@@ -252,7 +257,8 @@ function PlacementContent({
                     ? `The planned end date is ${placement.endDate}. Ending now requires a reason.`
                     : 'The internship has reached its planned end date.'}
                   {' '}The intern keeps read-only access to their weekly reports, and the Mentor can no longer
-                  change them. Reports awaiting review must be reviewed first. This cannot be undone.
+                  change them. Reports awaiting review must be reviewed first. Completing the placement issues
+                  the intern’s certificate of completion. This cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               <label className="block space-y-1.5 text-sm font-medium">

@@ -16,6 +16,7 @@ import { ApplicationStatus } from '../../domain/enums/application-status.enum.js
 
 import {
   ApplicationRepository,
+  type ApplicantIdentity,
   type CreateDraftInput,
   type CreatedDraft,
 } from '../../domain/repositories/application.repository.js';
@@ -116,29 +117,114 @@ export class SupabaseApplicationRepository
     };
   }
 
-  async hasActiveApplicationForCv(
+  async hasSubmittedApplicationForCv(
     cvSha256: string,
-    internshipId: string | null,
-    requestedTraining: string | null,
+    excludeApplicationId: string | null,
   ): Promise<boolean> {
-    const { data, error } =
-      await this.supabase.client
-        .from('applications')
-        .select('internship_id, requested_training')
-        .eq('cv_sha256', cvSha256)
-        .not('status', 'in', '(DRAFT,REJECTED)');
+    let query = this.supabase.client
+      .from('applications')
+      .select('id')
+      .eq('cv_sha256', cvSha256)
+      .neq('status', 'DRAFT');
+    if (excludeApplicationId) {
+      query = query.neq('id', excludeApplicationId);
+    }
+
+    const { data, error } = await query.limit(1);
 
     if (error) {
       throw new InternalServerErrorException(
-        'Unable to check for an existing application',
+        'Unable to check whether this CV was already submitted',
       );
     }
 
-    const target = trainingTarget(internshipId, requestedTraining);
-    return (data ?? []).some(
-      (row: { internship_id: string | null; requested_training: string | null }) =>
-        trainingTarget(row.internship_id, row.requested_training) === target,
-    );
+    return (data ?? []).length > 0;
+  }
+
+  async hasPreviousUploadOfCv(
+    cvSha256: string,
+    excludeApplicationId: string | null,
+  ): Promise<boolean> {
+    let query = this.supabase.client
+      .from('applications')
+      .select('id')
+      .eq('cv_sha256', cvSha256);
+    if (excludeApplicationId) {
+      query = query.neq('id', excludeApplicationId);
+    }
+
+    const { data, error } = await query.limit(1);
+
+    if (error) {
+      throw new InternalServerErrorException(
+        'Unable to check for an earlier upload of this CV',
+      );
+    }
+
+    return (data ?? []).length > 0;
+  }
+
+  async hasSubmittedApplication(
+    identity: ApplicantIdentity,
+  ): Promise<boolean> {
+    const authUserId = identity.authUserId ?? null;
+    const email = identity.email ?? null;
+    if (!authUserId && !email) {
+      return false;
+    }
+
+    const fail = () =>
+      new InternalServerErrorException(
+        'Unable to check for an earlier application',
+      );
+
+    // Applicant rows for this identity. Emails are compared like the database
+    // does (lower(btrim(email))); legacy rows may differ in case.
+    const applicantIds = new Set<string>();
+    const [byAuth, byEmail] = await Promise.all([
+      authUserId
+        ? this.supabase.client.from('applicants').select('id').eq('auth_user_id', authUserId)
+        : null,
+      email
+        ? this.supabase.client.from('applicants').select('id, email').ilike('email', likePattern(email))
+        : null,
+    ]);
+    if (byAuth?.error || byEmail?.error) throw fail();
+    for (const row of (byAuth?.data ?? []) as { id: string }[]) {
+      applicantIds.add(row.id);
+    }
+    for (const row of (byEmail?.data ?? []) as { id: string; email: string | null }[]) {
+      // The pattern can match more than the exact address.
+      if (row.email?.trim().toLowerCase() === email) applicantIds.add(row.id);
+    }
+
+    const checks = [];
+    if (applicantIds.size > 0) {
+      checks.push(
+        this.supabase.client
+          .from('applications')
+          .select('id')
+          .in('applicant_id', [...applicantIds])
+          .neq('status', 'DRAFT')
+          .limit(1),
+      );
+    }
+    if (email) {
+      // Submitted applications always store their normalized review email.
+      checks.push(
+        this.supabase.client
+          .from('applications')
+          .select('id')
+          .eq('review_email', email)
+          .neq('status', 'DRAFT')
+          .limit(1),
+      );
+    }
+    for (const { data, error } of await Promise.all(checks)) {
+      if (error) throw fail();
+      if ((data ?? []).length > 0) return true;
+    }
+    return false;
   }
 
   async deleteUnsubmittedDraft(
@@ -227,14 +313,6 @@ export class SupabaseApplicationRepository
   }
 }
 
-// Same normalization as the database duplicate index.
-function trainingTarget(
-  internshipId: string | null,
-  requestedTraining: string | null,
-): string {
-  return internshipId ?? `other:${(requestedTraining ?? '').trim().toLowerCase()}`;
-}
-
 function normalizeRelation<T>(
   relation: T | T[] | null,
 ): T | null {
@@ -245,4 +323,11 @@ function normalizeRelation<T>(
   return Array.isArray(relation)
     ? relation[0] ?? null
     : relation;
+}
+
+// ILIKE pattern for an email address: LIKE wildcards are escaped; '*' (which
+// PostgREST turns into '%') becomes a one-character wildcard. Matches are
+// then compared exactly.
+function likePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, '_');
 }

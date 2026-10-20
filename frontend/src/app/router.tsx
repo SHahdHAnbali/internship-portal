@@ -23,8 +23,14 @@ import InternDashboard from '@/pages/intern/Dashboard/InternDashboard';
 import MyInternship from '@/pages/intern/MyInternship/MyInternship';
 import TrainingReports from '@/pages/intern/TrainingReports/TrainingReports';
 import InternProfile from '@/pages/intern/Profile/InternProfile';
+import InternEvaluations from '@/pages/intern/Evaluations/InternEvaluations';
+import InternEvaluationDetail from '@/pages/intern/Evaluations/InternEvaluationDetail';
+import InternCertificates from '@/pages/intern/Certificates/InternCertificates';
+import InternCertificateDetail from '@/pages/intern/Certificates/InternCertificateDetail';
 import MentorLayout from '@/components/layout/MentorLayout/MentorLayout';
 import MentorDashboard from '@/pages/mentor/Dashboard/MentorDashboard';
+import MentorEvaluations from '@/pages/mentor/Evaluations/MentorEvaluations';
+import PlacementEvaluations from '@/pages/mentor/Evaluations/PlacementEvaluations';
 import AdminLayout from '@/components/layout/AdminLayout/AdminLayout';
 import AdminDashboard from '@/pages/admin/Dashboard/AdminDashboard';
 import UserManagement from '@/pages/admin/Users/UserManagement';
@@ -127,6 +133,10 @@ import SystemSettings from '@/pages/admin/Settings/SystemSettings';
          { path: 'dashboard', element: <InternDashboard /> },
          { path: 'my-internship', element: <MyInternship /> },
          { path: 'training-reports', element: <TrainingReports /> },
+         { path: 'evaluations', element: <InternEvaluations /> },
+         { path: 'evaluations/:evaluationId', element: <InternEvaluationDetail /> },
+         { path: 'certificates', element: <InternCertificates /> },
+         { path: 'certificates/:placementId', element: <InternCertificateDetail /> },
          { path: 'profile', element: <InternProfile /> },
        ],
      },
@@ -141,6 +151,8 @@ import SystemSettings from '@/pages/admin/Settings/SystemSettings';
        children: [
          { index: true, element: <MentorDashboard /> },
          { path: 'dashboard', element: <MentorDashboard /> },
+         { path: 'evaluations', element: <MentorEvaluations /> },
+         { path: 'evaluations/:placementId', element: <PlacementEvaluations /> },
        ],
      },
  

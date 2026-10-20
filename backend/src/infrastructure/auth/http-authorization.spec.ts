@@ -18,6 +18,8 @@ import { GetApplicationCvUrlUseCase } from '../../modules/applications/applicati
 import { UpdateApplicantProfileUseCase } from '../../modules/applications/application/use-cases/update-applicant-profile.use-case.js';
 import { ParseCvUseCase } from '../../modules/applications/application/use-cases/parse-cv.use-case.js';
 import { SubmitApplicationUseCase } from '../../modules/applications/application/use-cases/submit-application.use-case.js';
+import { CheckCvDuplicateUseCase } from '../../modules/applications/application/use-cases/check-cv-duplicate.use-case.js';
+import { GetApplicantEligibilityUseCase } from '../../modules/applications/application/use-cases/get-applicant-eligibility.use-case.js';
 import { GetApplicationReviewUseCase } from '../../modules/applications/application/use-cases/get-application-review.use-case.js';
 import { SubmitReviewedApplicationUseCase } from '../../modules/applications/application/use-cases/submit-reviewed-application.use-case.js';
 import { GetApplicationDetailsUseCase } from '../../modules/applications/application/use-cases/get-application-details.use-case.js';
@@ -36,6 +38,12 @@ import { CreateInternPlacementUseCase } from '../../modules/intern-placements/ap
 import { ActivateInternPlacementUseCase } from '../../modules/intern-placements/application/use-cases/activate-intern-placement.use-case.js';
 import { InternWeeklyReportsController, MentorWeeklyReportsController } from '../../modules/weekly-reports/presentation/controllers/weekly-reports.controller.js';
 import { WeeklyReportRepository } from '../../modules/weekly-reports/domain/repositories/weekly-report.repository.js';
+import { EvaluationRepository } from '../../modules/evaluations/domain/repositories/evaluation.repository.js';
+import { MentorEvaluationsController } from '../../modules/evaluations/presentation/controllers/mentor-evaluations.controller.js';
+import { InternEvaluationsController } from '../../modules/evaluations/presentation/controllers/intern-evaluations.controller.js';
+import { CertificateRepository } from '../../modules/certificates/domain/repositories/certificate.repository.js';
+import { InternCertificatesController } from '../../modules/certificates/presentation/controllers/intern-certificates.controller.js';
+import { HrCertificatesController } from '../../modules/certificates/presentation/controllers/hr-certificates.controller.js';
 import { InternProfileController } from '../../modules/applications/presentation/controllers/intern-profile.controller.js';
 import { HrInternProgressController } from '../../modules/intern-placements/presentation/controllers/hr-intern-progress.controller.js';
 import { InternProgressService } from '../../modules/intern-placements/application/services/intern-progress.service.js';
@@ -118,7 +126,7 @@ function createSupabaseMock() {
 
 const useCaseTokens = [
   ListApplicationsUseCase, ExportApplicationsUseCase, GetApplicationIntakeUseCase, ReleaseApplicationSelectionUseCase, GetApplicationCvUrlUseCase, UpdateApplicantProfileUseCase,
-  ParseCvUseCase, SubmitApplicationUseCase, GetApplicationReviewUseCase,
+  ParseCvUseCase, SubmitApplicationUseCase, CheckCvDuplicateUseCase, GetApplicantEligibilityUseCase, GetApplicationReviewUseCase,
   SubmitReviewedApplicationUseCase, GetApplicationDetailsUseCase, UpdateApplicationStatusUseCase,
   MatchApplicationUseCase, GetApplicationMatchUseCase, GetApplicantProfileUseCase, GetHrDashboardUseCase,
   ListInternshipsUseCase, CreateInternshipUseCase, UpdateInternshipUseCase, CreateInternPlacementUseCase,
@@ -193,6 +201,17 @@ const protectedRoutes: ProtectedRoute[] = [
   { method: 'put', path: '/intern/me/weekly-reports/2026-10-05', allowed: 'INTERN', body: { summary: 'Week' } },
   { method: 'post', path: `/intern/me/weekly-reports/${UUID}/submit`, allowed: 'INTERN' },
   { method: 'get', path: '/intern/me/profile', allowed: 'INTERN' },
+  { method: 'get', path: `/mentor/placements/${UUID}/evaluations`, allowed: 'MENTOR' },
+  { method: 'post', path: `/mentor/placements/${UUID}/evaluations`, allowed: 'MENTOR', body: { content: 'Draft', clientRequestId: OTHER_UUID } },
+  { method: 'get', path: `/mentor/evaluations/${UUID}`, allowed: 'MENTOR' },
+  { method: 'put', path: `/mentor/evaluations/${UUID}`, allowed: 'MENTOR', body: { content: 'Edited', expectedRevision: 1 } },
+  { method: 'post', path: `/mentor/evaluations/${UUID}/publish`, allowed: 'MENTOR', body: { expectedRevision: 2 } },
+  { method: 'get', path: '/intern/me/evaluations', allowed: 'INTERN' },
+  { method: 'get', path: `/intern/me/evaluations/${UUID}`, allowed: 'INTERN' },
+  { method: 'get', path: '/intern/me/certificates', allowed: 'INTERN' },
+  { method: 'get', path: `/intern/me/certificates/${UUID}`, allowed: 'INTERN' },
+  { method: 'get', path: `/hr/placements/${UUID}/certificates`, allowed: 'HR' },
+  { method: 'post', path: `/hr/certificates/${UUID}/reissue`, allowed: 'HR', body: { reason: 'Name corrected' } },
 ];
 
 describe('HTTP authorization matrix', () => {
@@ -218,6 +237,21 @@ describe('HTTP authorization matrix', () => {
     listForMentorPlacement: vi.fn(async () => []),
     reviewForMentor: vi.fn(async () => ({ id: UUID })),
   };
+  const evaluations = {
+    listForMentorPlacement: vi.fn(async () => []),
+    getForMentor: vi.fn(async () => ({ id: UUID })),
+    createForMentor: vi.fn(async () => ({ id: UUID })),
+    saveForMentor: vi.fn(async () => ({ id: UUID })),
+    publishForMentor: vi.fn(async () => ({ id: UUID })),
+    listForIntern: vi.fn(async () => []),
+    getForIntern: vi.fn(async () => ({ id: UUID })),
+  };
+  const certificates = {
+    listForIntern: vi.fn(async () => []),
+    getForIntern: vi.fn(async () => ({ placementId: UUID })),
+    listForHrPlacement: vi.fn(async () => []),
+    reissueForHr: vi.fn(async () => ({ id: OTHER_UUID })),
+  };
   const adminSettings = {
     getApplicationIntake: vi.fn(async () => ({ applicationsOpen: true, updatedAt: 't', updatedBy: null })),
     setApplicationIntake: vi.fn(async () => ({ applicationsOpen: false, updatedAt: 't', updatedBy: 'Admin' })),
@@ -241,6 +275,8 @@ describe('HTTP authorization matrix', () => {
         InternPlacementController, MentorPlacementsController,
         TrainingPlanningController, AdminController, InternWeeklyReportsController,
         MentorWeeklyReportsController, InternProfileController, HrInternProgressController,
+        MentorEvaluationsController, InternEvaluationsController,
+        InternCertificatesController, HrCertificatesController,
       ],
       providers: [
         { provide: SupabaseService, useValue: createSupabaseMock() },
@@ -248,6 +284,8 @@ describe('HTTP authorization matrix', () => {
         { provide: TrainingPlanningService, useValue: planningService },
         { provide: AdminUsersService, useValue: adminUsers },
         { provide: WeeklyReportRepository, useValue: weeklyReports },
+        { provide: EvaluationRepository, useValue: evaluations },
+        { provide: CertificateRepository, useValue: certificates },
         { provide: InternProgressService, useValue: { list: vi.fn(async () => []) } },
         { provide: AdminOverviewService, useValue: adminOverview },
         { provide: AdminSettingsService, useValue: adminSettings },
@@ -271,6 +309,8 @@ describe('HTTP authorization matrix', () => {
     for (const fn of Object.values(adminUsers)) fn.mockClear();
     adminOverview.getOverview.mockClear();
     for (const fn of Object.values(weeklyReports)) fn.mockClear();
+    for (const fn of Object.values(evaluations)) fn.mockClear();
+    for (const fn of Object.values(certificates)) fn.mockClear();
   });
 
   const send = (route: ProtectedRoute, token?: string) => {
@@ -378,6 +418,228 @@ describe('HTTP authorization matrix', () => {
     });
   });
 
+  describe('evaluation requests', () => {
+    it('never reach the evaluation repository for HR, ADMIN, APPLICANT or a pending user', async () => {
+      const evaluationRoutes = protectedRoutes.filter((route) => route.path.includes('/evaluations'));
+      expect(evaluationRoutes).toHaveLength(7);
+      for (const route of evaluationRoutes) {
+        for (const role of ['HR', 'ADMIN', 'APPLICANT'] as const) {
+          await send(route, tokenFor(role)).expect(403);
+        }
+        await send(route, pendingTokenFor(route.allowed)).expect(403);
+      }
+      for (const fn of Object.values(evaluations)) expect(fn).not.toHaveBeenCalled();
+    });
+
+    it('pass the Mentor from the token and the text exactly as sent', async () => {
+      const text = '  Línea\r\nسطر 😀\t ';
+      await send({ method: 'post', path: `/mentor/placements/${UUID}/evaluations`, allowed: 'MENTOR',
+        body: { content: text, clientRequestId: OTHER_UUID } }, tokenFor('MENTOR')).expect(201);
+      expect(evaluations.createForMentor).toHaveBeenCalledWith(idFor('MENTOR'), UUID, OTHER_UUID, text);
+      await send({ method: 'put', path: `/mentor/evaluations/${UUID}`, allowed: 'MENTOR', body: { content: text, expectedRevision: 4 } },
+        tokenFor('MENTOR')).expect(200);
+      expect(evaluations.saveForMentor).toHaveBeenCalledWith(idFor('MENTOR'), UUID, 4, text);
+      await send({ method: 'post', path: `/mentor/evaluations/${UUID}/publish`, allowed: 'MENTOR', body: { expectedRevision: 5 } },
+        tokenFor('MENTOR')).expect(200);
+      expect(evaluations.publishForMentor).toHaveBeenCalledWith(idFor('MENTOR'), UUID, 5);
+    });
+
+    it('refuse client-supplied identity, state or snapshot fields instead of ignoring them', async () => {
+      for (const body of [
+        { content: 'x', clientRequestId: OTHER_UUID, mentorProfileId: OTHER_UUID },
+        { content: 'x', clientRequestId: OTHER_UUID, authorProfileId: OTHER_UUID },
+        { content: 'x', clientRequestId: OTHER_UUID, status: 'PUBLISHED' },
+      ]) {
+        const response = await send({ method: 'post', path: `/mentor/placements/${UUID}/evaluations`, allowed: 'MENTOR', body },
+          tokenFor('MENTOR')).expect(400);
+        expect(response.body.code).toBe('VALIDATION_FAILED');
+      }
+      const publish = await send({ method: 'post', path: `/mentor/evaluations/${UUID}/publish`, allowed: 'MENTOR',
+        body: { expectedRevision: 2, content: 'publish this instead' } }, tokenFor('MENTOR')).expect(400);
+      expect(publish.body.code).toBe('VALIDATION_FAILED');
+      expect(evaluations.createForMentor).not.toHaveBeenCalled();
+      expect(evaluations.publishForMentor).not.toHaveBeenCalled();
+    });
+
+    it('validate ids, revisions and the code-point limit before any database call', async () => {
+      await send({ method: 'get', path: '/mentor/evaluations/not-a-uuid', allowed: 'MENTOR' }, tokenFor('MENTOR')).expect(400);
+      await send({ method: 'get', path: '/intern/me/evaluations/not-a-uuid', allowed: 'INTERN' }, tokenFor('INTERN')).expect(400);
+      const noRevision = await send({ method: 'put', path: `/mentor/evaluations/${UUID}`, allowed: 'MENTOR', body: { content: 'x' } },
+        tokenFor('MENTOR')).expect(400);
+      expect(noRevision.body.code).toBe('VALIDATION_FAILED');
+      const tooLong = await send({ method: 'post', path: `/mentor/placements/${UUID}/evaluations`, allowed: 'MENTOR',
+        body: { content: 'a'.repeat(40_001), clientRequestId: OTHER_UUID } }, tokenFor('MENTOR')).expect(400);
+      expect(tooLong.body.code).toBe('EVALUATION_CONTENT_TOO_LONG');
+      for (const clientRequestId of [undefined, 'not-a-uuid']) {
+        const noKey = await send({ method: 'post', path: `/mentor/placements/${UUID}/evaluations`, allowed: 'MENTOR',
+          body: { content: 'x', clientRequestId } }, tokenFor('MENTOR')).expect(400);
+        expect(noKey.body.code).toBe('VALIDATION_FAILED');
+      }
+      expect(evaluations.getForMentor).not.toHaveBeenCalled();
+      expect(evaluations.saveForMentor).not.toHaveBeenCalled();
+      expect(evaluations.createForMentor).not.toHaveBeenCalled();
+    });
+
+    it('mark evaluation responses as not cacheable', async () => {
+      const mentor = await send({ method: 'get', path: `/mentor/evaluations/${UUID}`, allowed: 'MENTOR' }, tokenFor('MENTOR')).expect(200);
+      expect(mentor.headers['cache-control']).toBe('no-store');
+      const intern = await send({ method: 'get', path: '/intern/me/evaluations', allowed: 'INTERN' }, tokenFor('INTERN')).expect(200);
+      expect(intern.headers['cache-control']).toBe('no-store');
+      expect(evaluations.listForIntern).toHaveBeenCalledWith(idFor('INTERN'));
+    });
+  });
+
+  describe('certificate requests', () => {
+    const certificateRoutes = () => protectedRoutes.filter((route) => route.path.includes('certificates'));
+
+    it('never reach the certificate repository for other roles, pending users or missing sessions', async () => {
+      expect(certificateRoutes()).toHaveLength(4);
+      for (const route of certificateRoutes()) {
+        for (const role of ROLES.filter((candidate) => candidate !== route.allowed)) {
+          await send(route, tokenFor(role)).expect(403);
+        }
+        await send(route, pendingTokenFor(route.allowed)).expect(403);
+        await send(route, 'inactive-hr-token').expect(403);
+        await send(route).expect(401);
+      }
+      for (const fn of Object.values(certificates)) expect(fn).not.toHaveBeenCalled();
+    });
+
+    it('read the intern\'s own certificates by placement, with the intern from the token', async () => {
+      const list = await send({ method: 'get', path: `/intern/me/certificates?authUserId=${OTHER_UUID}`, allowed: 'INTERN' },
+        tokenFor('INTERN')).expect(200);
+      expect(certificates.listForIntern).toHaveBeenCalledWith(idFor('INTERN'));
+      expect(list.headers['cache-control']).toBe('no-store');
+      const one = await send({ method: 'get', path: `/intern/me/certificates/${UUID}`, allowed: 'INTERN' }, tokenFor('INTERN')).expect(200);
+      expect(certificates.getForIntern).toHaveBeenCalledWith(idFor('INTERN'), UUID);
+      expect(one.headers['cache-control']).toBe('no-store');
+      expect(one.body).toEqual({ placementId: UUID });
+    });
+
+    it('return the intern view without an id, reason, history or number', async () => {
+      const view = {
+        placementId: UUID, certificateTitle: 'Certificate of Completion', issuerName: 'Progineer Technologies',
+        recipientName: 'Intern', trainingTitle: 'Engineering', completionDate: '2026-03-11', issuedAt: '2026-03-10T22:30:05Z',
+      };
+      certificates.listForIntern.mockResolvedValueOnce([view] as never);
+      const response = await send({ method: 'get', path: '/intern/me/certificates', allowed: 'INTERN' }, tokenFor('INTERN')).expect(200);
+      expect(response.body).toEqual([view]);
+      expect(Object.keys(response.body[0])).not.toEqual(expect.arrayContaining(['id']));
+      expect(JSON.stringify(response.body)).not.toMatch(/"(id|certificateId|status|reissueReason|supersedesCertificateId|certificateNumber)"/);
+    });
+
+    it('list a placement\'s history and reissue with the HR user from the token', async () => {
+      const list = await send({ method: 'get', path: `/hr/placements/${UUID}/certificates`, allowed: 'HR' }, tokenFor('HR')).expect(200);
+      expect(certificates.listForHrPlacement).toHaveBeenCalledWith(idFor('HR'), UUID);
+      expect(list.headers['cache-control']).toBe('no-store');
+      const reissue = await send({ method: 'post', path: `/hr/certificates/${UUID}/reissue`, allowed: 'HR', body: { reason: '  Name corrected  ' } },
+        tokenFor('HR')).expect(201);
+      expect(certificates.reissueForHr).toHaveBeenCalledWith(idFor('HR'), UUID, 'Name corrected');
+      expect(reissue.headers['cache-control']).toBe('no-store');
+    });
+
+    it('validate the reissue reason before any database call', async () => {
+      const cases: Array<[Record<string, unknown> | undefined, string]> = [
+        [undefined, 'REISSUE_REASON_REQUIRED'],
+        [{}, 'REISSUE_REASON_REQUIRED'],
+        [{ reason: '' }, 'REISSUE_REASON_REQUIRED'],
+        [{ reason: '   ' }, 'REISSUE_REASON_REQUIRED'],
+        [{ reason: 'x'.repeat(1001) }, 'REISSUE_REASON_TOO_LONG'],
+        [{ reason: 42 }, 'VALIDATION_FAILED'],
+        [{ reason: 'Fix', actorProfileId: OTHER_UUID }, 'VALIDATION_FAILED'],
+        [{ reason: 'Fix', role: 'HR' }, 'VALIDATION_FAILED'],
+        [{ reason: 'Fix', placementId: OTHER_UUID }, 'VALIDATION_FAILED'],
+      ];
+      for (const [body, code] of cases) {
+        const response = await send({ method: 'post', path: `/hr/certificates/${UUID}/reissue`, allowed: 'HR', body },
+          tokenFor('HR')).expect(400);
+        expect(response.body.code).toBe(code);
+      }
+      await send({ method: 'post', path: `/hr/certificates/${UUID}/reissue`, allowed: 'HR', body: { reason: 'x'.repeat(1000) } },
+        tokenFor('HR')).expect(201);
+      expect(certificates.reissueForHr).toHaveBeenCalledTimes(1);
+    });
+
+    it('validate ids before any database call', async () => {
+      await send({ method: 'get', path: '/intern/me/certificates/not-a-uuid', allowed: 'INTERN' }, tokenFor('INTERN')).expect(400);
+      await send({ method: 'get', path: '/hr/placements/not-a-uuid/certificates', allowed: 'HR' }, tokenFor('HR')).expect(400);
+      await send({ method: 'post', path: '/hr/certificates/not-a-uuid/reissue', allowed: 'HR', body: { reason: 'Fix' } }, tokenFor('HR')).expect(400);
+      for (const fn of Object.values(certificates)) expect(fn).not.toHaveBeenCalled();
+    });
+
+    it('offer no other certificate routes (no issue, edit or delete; no Mentor or ADMIN access)', async () => {
+      for (const [method, path, role] of [
+        ['post', `/hr/placements/${UUID}/certificates`, 'HR'],
+        ['patch', `/hr/certificates/${UUID}`, 'HR'],
+        ['delete', `/hr/certificates/${UUID}`, 'HR'],
+        ['get', `/hr/certificates/${UUID}`, 'HR'],
+        ['get', `/mentor/placements/${UUID}/certificates`, 'MENTOR'],
+        ['get', '/admin/certificates', 'ADMIN'],
+      ] as const) {
+        await request(app.getHttpServer())[method](path).set('Authorization', `Bearer ${tokenFor(role)}`).expect(404);
+      }
+      for (const fn of Object.values(certificates)) expect(fn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('CV duplicate check', () => {
+    it('is public, answers 200 from the shared rule, and validates its input', async () => {
+      const execute = mocks.get(CheckCvDuplicateUseCase)!.execute;
+      execute.mockResolvedValueOnce({ duplicate: false, previouslyUploaded: true });
+      const response = await request(app.getHttpServer())
+        .post('/applications/cv-check')
+        .send({ cvSha256: 'a'.repeat(64), internshipId: UUID })
+        .expect(200);
+      expect(response.body).toEqual({ duplicate: false, previouslyUploaded: true });
+      expect(execute).toHaveBeenCalledWith('a'.repeat(64), UUID, null);
+
+      // A CV can be checked before a training is chosen.
+      execute.mockResolvedValueOnce({ duplicate: null, previouslyUploaded: false });
+      await request(app.getHttpServer()).post('/applications/cv-check').send({ cvSha256: 'b'.repeat(64) }).expect(200);
+      expect(execute).toHaveBeenLastCalledWith('b'.repeat(64), null, null);
+
+      await request(app.getHttpServer()).post('/applications/cv-check').send({ cvSha256: 'not-a-hash', internshipId: UUID }).expect(400);
+      await request(app.getHttpServer()).post('/applications/cv-check').send({ cvSha256: 'a'.repeat(64), internshipId: 'nope' }).expect(400);
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('one application per applicant', () => {
+    it('answers eligibility for the signed-in user of any role, from their own session only', async () => {
+      const execute = mocks.get(GetApplicantEligibilityUseCase)!.execute;
+      execute.mockResolvedValue({ canApply: false });
+      await request(app.getHttpServer()).get('/applications/eligibility').expect(401);
+      expect(execute).not.toHaveBeenCalled();
+      for (const role of ['APPLICANT', 'INTERN'] as const) {
+        const response = await request(app.getHttpServer())
+          .get(`/applications/eligibility?authUserId=${OTHER_UUID}`)
+          .set('Authorization', `Bearer ${tokenFor(role)}`)
+          .expect(200);
+        expect(response.body).toEqual({ canApply: false });
+        expect(execute).toHaveBeenLastCalledWith(expect.objectContaining({ id: idFor(role) }));
+      }
+    });
+
+    it('passes a signed-in caller\'s session to the CV upload so the rule is checked for that account', async () => {
+      const execute = mocks.get(SubmitApplicationUseCase)!.execute;
+      execute.mockResolvedValue({ applicationId: 'a', status: 'DRAFT', message: 'ok' });
+      await request(app.getHttpServer())
+        .post('/applications/submit')
+        .set('Authorization', `Bearer ${tokenFor('INTERN')}`)
+        .field('internshipId', UUID)
+        .attach('cv', Buffer.from('%PDF-1.4'), { filename: 'cv.pdf', contentType: 'application/pdf' })
+        .expect(201);
+      expect(execute).toHaveBeenLastCalledWith(UUID, null, expect.anything(), tokenFor('INTERN'));
+
+      await request(app.getHttpServer())
+        .post('/applications/submit')
+        .field('internshipId', UUID)
+        .attach('cv', Buffer.from('%PDF-1.4'), { filename: 'cv.pdf', contentType: 'application/pdf' })
+        .expect(201);
+      expect(execute).toHaveBeenLastCalledWith(UUID, null, expect.anything(), null);
+    });
+  });
+
   describe('application intake and selection release', () => {
     it('exposes intake status publicly, without authentication', async () => {
       await send({ method: 'get', path: '/applications/intake', allowed: 'APPLICANT' }).expect(200);
@@ -407,6 +669,13 @@ describe('HTTP authorization matrix', () => {
     it('requires a valid selection status when HR updates an opportunity', async () => {
       await send({ method: 'patch', path: `/internships/${UUID}`, allowed: 'HR', body: { title: 'E', isActive: true, capacity: 3, selectionStatus: 'APPROVED' } }, tokenFor('HR')).expect(400);
       await send({ method: 'post', path: '/internships', allowed: 'HR', body: { title: 'E', selectionStatus: 'CLOSED' } }, tokenFor('HR')).expect(400);
+    });
+
+    it('creates an opportunity from its title alone; there is no separate internship type', async () => {
+      await send({ method: 'post', path: '/internships', allowed: 'HR', body: { title: ' E ', internshipType: 'Other' } }, tokenFor('HR')).expect(201);
+      const command = mocks.get(CreateInternshipUseCase)!.execute.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+      expect(command).toMatchObject({ actorProfileId: idFor('HR'), title: 'E' });
+      expect(command).not.toHaveProperty('internshipType');
     });
   });
 

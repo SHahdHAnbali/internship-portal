@@ -1,4 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/features/auth/auth-context';
+import { userScopedKey } from '@/lib/query-client';
 import { AlertCircle, LoaderCircle, RotateCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -8,7 +10,8 @@ import { getInternProfile } from '@/features/intern/services/weekly-reports.serv
 
 // Read-only: the profile the intern submitted with their application.
 export default function InternProfile() {
-  const query = useQuery({ queryKey: ['intern', 'profile'], queryFn: getInternProfile, retry: false });
+  const { user } = useAuth();
+  const query = useQuery({ queryKey: userScopedKey(['intern', 'profile'], user?.id), queryFn: getInternProfile, retry: false });
 
   return (
     <div className="mx-auto max-w-5xl space-y-7 p-5 sm:p-8">

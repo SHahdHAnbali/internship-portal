@@ -7,6 +7,7 @@ import { SubmitReviewedApplicationDto } from './submit-reviewed-application.dto.
 import { UpdateApplicationStatusDto } from './update-application-status.dto.js';
 import { ListApplicationsQueryDto } from './list-applications-query.dto.js';
 import { UpdateApplicantProfileDto } from './update-applicant-profile.dto.js';
+import { CheckCvDuplicateDto } from './check-cv-duplicate.dto.js';
 
 const options = { whitelist: true };
 
@@ -113,5 +114,30 @@ describe('ListApplicationsQueryDto', () => {
     ['overlong search', { search: 'x'.repeat(201) }, 'search'],
   ])('rejects %s', async (_label, query, property) => {
     expect((await check(ListApplicationsQueryDto, query)).errors).toContain(property);
+  });
+});
+
+describe('CheckCvDuplicateDto', () => {
+  const hash = 'a'.repeat(64);
+
+  it('accepts a SHA-256 with one training target', async () => {
+    expect((await check(CheckCvDuplicateDto, { cvSha256: hash, internshipId: '11111111-1111-4111-8111-111111111111' })).errors).toEqual([]);
+    expect((await check(CheckCvDuplicateDto, { cvSha256: hash.toUpperCase(), requestedTraining: 'Robotics' })).errors).toEqual([]);
+  });
+
+  it.each([
+    [{}, 'cvSha256'],
+    [{ cvSha256: 'a'.repeat(63) }, 'cvSha256'],
+    [{ cvSha256: 'g'.repeat(64) }, 'cvSha256'],
+    [{ cvSha256: hash, internshipId: 'not-a-uuid' }, 'internshipId'],
+    [{ cvSha256: hash, requestedTraining: 'x'.repeat(151) }, 'requestedTraining'],
+  ])('refuses %j', async (plain, property) => {
+    expect((await check(CheckCvDuplicateDto, plain)).errors).toContain(property);
+  });
+
+  it('drops unknown fields (no file or identity data is accepted)', async () => {
+    const { instance, errors } = await check(CheckCvDuplicateDto, { cvSha256: hash, requestedTraining: 'Robotics', email: 'x@example.com' });
+    expect(errors).toEqual([]);
+    expect(instance).not.toHaveProperty('email');
   });
 });

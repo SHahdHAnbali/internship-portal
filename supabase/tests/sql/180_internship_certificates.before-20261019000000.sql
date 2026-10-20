@@ -1,0 +1,67 @@
+-- Seed for 180_internship_certificates.test.sql. Runs just before migration
+-- 20261019000000 (see run.sh), so the migration's backfill meets placements
+-- that were completed before certificates existed.
+--
+-- Profiles: 01 HR, 02 Mentor One, 07 Admin, 0d Applicant (no placement),
+-- interns 05 (b1), 06 (b2), 08 (b3), 09 (b4), 0a (b5).
+-- Placements:
+--   f1 COMPLETED here through complete_intern_placement (HR 01 recorded)
+--   f9 COMPLETED written directly, no completion event, completed at
+--      2026-03-10 22:30 UTC = 2026-03-11 in Asia/Hebron
+--   f2 ACTIVE, planned end passed; f3 ACTIVE, ends in the future (early end);
+--   f4 ACTIVE (rollback and concurrency scenarios).
+
+INSERT INTO auth.users (id, email) VALUES
+ ('00000000-0000-0000-0000-000000000001','hr@x.com'),
+ ('00000000-0000-0000-0000-000000000002','m1@x.com'),
+ ('00000000-0000-0000-0000-000000000005','i1@x.com'),
+ ('00000000-0000-0000-0000-000000000006','i2@x.com'),
+ ('00000000-0000-0000-0000-000000000007','admin@x.com'),
+ ('00000000-0000-0000-0000-000000000008','i3@x.com'),
+ ('00000000-0000-0000-0000-000000000009','i4@x.com'),
+ ('00000000-0000-0000-0000-00000000000a','i5@x.com'),
+ ('00000000-0000-0000-0000-00000000000d','a1@x.com');
+INSERT INTO public.profiles (id, full_name, email, role) VALUES
+ ('00000000-0000-0000-0000-000000000001','HR','hr@x.com','HR'),
+ ('00000000-0000-0000-0000-000000000002','Mentor One','m1@x.com','MENTOR'),
+ ('00000000-0000-0000-0000-000000000005','Intern One','i1@x.com','INTERN'),
+ ('00000000-0000-0000-0000-000000000006','Intern Two','i2@x.com','INTERN'),
+ ('00000000-0000-0000-0000-000000000007','Admin','admin@x.com','ADMIN'),
+ ('00000000-0000-0000-0000-000000000008','Intern Three','i3@x.com','INTERN'),
+ ('00000000-0000-0000-0000-000000000009','Intern Four','i4@x.com','INTERN'),
+ ('00000000-0000-0000-0000-00000000000a','Intern Five','i5@x.com','INTERN'),
+ ('00000000-0000-0000-0000-00000000000d','Applicant One','a1@x.com','APPLICANT');
+INSERT INTO public.applicants (id, full_name, email, auth_user_id) VALUES
+ ('00000000-0000-0000-0000-0000000000b1','Intern One','i1@x.com','00000000-0000-0000-0000-000000000005'),
+ ('00000000-0000-0000-0000-0000000000b2','Intern Two','i2@x.com','00000000-0000-0000-0000-000000000006'),
+ ('00000000-0000-0000-0000-0000000000b3','Intern Three','i3@x.com','00000000-0000-0000-0000-000000000008'),
+ ('00000000-0000-0000-0000-0000000000b4','Intern Four','i4@x.com','00000000-0000-0000-0000-000000000009'),
+ ('00000000-0000-0000-0000-0000000000b5','Intern Five','i5@x.com','00000000-0000-0000-0000-00000000000a');
+INSERT INTO public.internships (id, title, capacity) VALUES
+ ('00000000-0000-0000-0000-0000000000e1','Engineering', 10),
+ ('00000000-0000-0000-0000-0000000000e2','Data Analysis', 10);
+INSERT INTO public.applications (id, status, internship_id, requested_training, applicant_id) VALUES
+ ('00000000-0000-0000-0000-0000000000c1','SELECTED','00000000-0000-0000-0000-0000000000e1',NULL,'00000000-0000-0000-0000-0000000000b1'),
+ ('00000000-0000-0000-0000-0000000000c2','SELECTED','00000000-0000-0000-0000-0000000000e1',NULL,'00000000-0000-0000-0000-0000000000b2'),
+ ('00000000-0000-0000-0000-0000000000c3','SELECTED','00000000-0000-0000-0000-0000000000e2',NULL,'00000000-0000-0000-0000-0000000000b3'),
+ ('00000000-0000-0000-0000-0000000000c4','SELECTED','00000000-0000-0000-0000-0000000000e1',NULL,'00000000-0000-0000-0000-0000000000b4'),
+ ('00000000-0000-0000-0000-0000000000c9','SELECTED','00000000-0000-0000-0000-0000000000e2',NULL,'00000000-0000-0000-0000-0000000000b5');
+INSERT INTO public.intern_placements (id, application_id, applicant_id, internship_id, company, start_date, end_date, status, mentor_profile_id) VALUES
+ ('00000000-0000-0000-0000-0000000000f1','00000000-0000-0000-0000-0000000000c1','00000000-0000-0000-0000-0000000000b1',
+  '00000000-0000-0000-0000-0000000000e1','Acme', current_date - 60, current_date - 1, 'ACTIVE', '00000000-0000-0000-0000-000000000002'),
+ ('00000000-0000-0000-0000-0000000000f2','00000000-0000-0000-0000-0000000000c2','00000000-0000-0000-0000-0000000000b2',
+  '00000000-0000-0000-0000-0000000000e1','Acme', current_date - 60, current_date - 1, 'ACTIVE', '00000000-0000-0000-0000-000000000002'),
+ ('00000000-0000-0000-0000-0000000000f3','00000000-0000-0000-0000-0000000000c3','00000000-0000-0000-0000-0000000000b3',
+  '00000000-0000-0000-0000-0000000000e2','Acme', current_date - 10, current_date + 30, 'ACTIVE', '00000000-0000-0000-0000-000000000002'),
+ ('00000000-0000-0000-0000-0000000000f4','00000000-0000-0000-0000-0000000000c4','00000000-0000-0000-0000-0000000000b4',
+  '00000000-0000-0000-0000-0000000000e1','Acme', current_date - 60, current_date - 1, 'ACTIVE', '00000000-0000-0000-0000-000000000002');
+INSERT INTO public.intern_placements (id, application_id, applicant_id, internship_id, company, start_date, end_date, status,
+                                      mentor_profile_id, completed_at, ended_early) VALUES
+ ('00000000-0000-0000-0000-0000000000f9','00000000-0000-0000-0000-0000000000c9','00000000-0000-0000-0000-0000000000b5',
+  '00000000-0000-0000-0000-0000000000e2','Acme', '2026-01-04', '2026-03-10', 'COMPLETED', '00000000-0000-0000-0000-000000000002',
+  '2026-03-10 22:30:00+00', false);
+
+-- f1 completed the way the portal did it before certificates existed.
+SET ROLE service_role;
+SELECT * FROM public.complete_intern_placement('00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000f1',NULL);
+RESET ROLE;

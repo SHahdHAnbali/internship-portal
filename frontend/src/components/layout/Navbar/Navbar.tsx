@@ -21,6 +21,8 @@ import {
 } from '@/features/auth/AuthProvider';
 import { useAuth } from '@/features/auth/auth-context';
 
+import { isNavigationItemActive } from './navigation-match';
+
 interface NavigationItem {
   label: string;
   to: string;
@@ -41,17 +43,17 @@ function Navbar() {
     signOut,
   } = useAuth();
 
+  const navigation =
+    getNavigation(role, Boolean(user));
+
   const isActive = (
     path: string,
-  ) => {
-    if (path === '/') {
-      return location.pathname === '/';
-    }
-
-    return location.pathname.startsWith(
+  ) =>
+    isNavigationItemActive(
+      location.pathname,
       path,
+      navigation.map((item) => item.to),
     );
-  };
 
   const navLinkClass = (
     path: string,
@@ -62,9 +64,6 @@ function Navbar() {
         ? 'text-foreground'
         : 'text-muted-foreground hover:text-foreground',
     ].join(' ');
-
-  const navigation =
-    getNavigation(role, Boolean(user));
 
   async function handleSignOut() {
     await signOut();
@@ -348,6 +347,14 @@ function getNavigation(
           label: 'Weekly Reports',
           to: '/intern/training-reports',
         },
+        {
+          label: 'Evaluations',
+          to: '/intern/evaluations',
+        },
+        {
+          label: 'Certificates',
+          to: '/intern/certificates',
+        },
       ];
 
     case 'ADMIN':
@@ -379,6 +386,10 @@ function getNavigation(
         {
           label: 'Assigned Interns',
           to: '/mentor',
+        },
+        {
+          label: 'Evaluations',
+          to: '/mentor/evaluations',
         },
       ];
 

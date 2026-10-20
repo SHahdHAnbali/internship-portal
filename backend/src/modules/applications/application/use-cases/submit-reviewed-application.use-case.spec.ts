@@ -25,6 +25,7 @@ const draft = {
   extracted_data: { email: 'applicant@example.com' },
   review_token_expires_at: new Date(Date.now() + 60_000).toISOString(),
   review_token_used_at: null,
+  cv_sha256: 'c'.repeat(64),
 };
 
 const reviewedData = {
@@ -48,6 +49,9 @@ interface SetupOptions {
   sessionUser?: Record<string, unknown> | null;
   deleteResult?: boolean;
   intakeOpen?: boolean;
+  // Whether this identity already has a submitted application.
+  alreadyApplied?: (identity: { authUserId?: string | null; email?: string | null }) => boolean;
+  cvAlreadySubmitted?: boolean;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -71,8 +75,13 @@ function setup(options: SetupOptions = {}) {
     ),
     deleteUnlinkedAuthUser: vi.fn().mockResolvedValue(options.deleteResult ?? true),
   };
-  const useCase = new SubmitReviewedApplicationUseCase(supabase as never, accounts as never);
-  return { useCase, rpc, accounts, getUser, maybeSingle, supabase, intake };
+  const applications = {
+    hasSubmittedApplication: vi.fn(async (identity: { authUserId?: string | null; email?: string | null }) =>
+      options.alreadyApplied?.(identity) ?? false),
+    hasSubmittedApplicationForCv: vi.fn(async () => options.cvAlreadySubmitted ?? false),
+  };
+  const useCase = new SubmitReviewedApplicationUseCase(supabase as never, accounts as never, applications as never);
+  return { useCase, rpc, accounts, getUser, maybeSingle, supabase, intake, applications };
 }
 
 const confirmedSessionUser = {
@@ -430,5 +439,105 @@ describe('SubmitReviewedApplicationUseCase while portal intake is closed', () =>
     await expect(useCase.execute(rawToken, reviewedData)).rejects.toMatchObject({ response: { code: 'APPLICATIONS_CLOSED' } });
     expect(accounts.createReviewedApplicantAuthUser).toHaveBeenCalledTimes(1);
     expect(accounts.deleteUnlinkedAuthUser).toHaveBeenCalledWith('new-auth-user-id');
+  });
+});
+
+describe('SubmitReviewedApplicationUseCase: one application per applicant, ever', () => {
+  it('refuses an applicant whose email already has a submitted application, before any account is created', async () => {
+    const { useCase, accounts, rpc, getUser, applications } = setup({ alreadyApplied: ({ email }) => email === 'applicant@example.com' });
+    const error = await useCase.execute(rawToken, reviewedData).catch((e: unknown) => e) as { getStatus(): number; getResponse(): unknown };
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toMatchObject({ code: 'PREVIOUS_APPLICATION_EXISTS' });
+    expect(JSON.stringify(error.getResponse())).not.toMatch(/@|draft-id|applicant-id/);
+    expect(applications.hasSubmittedApplication).toHaveBeenCalledWith({ email: 'applicant@example.com' });
+    expect(accounts.createReviewedApplicantAuthUser).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses a signed-in applicant or intern whose account already has a submitted application', async () => {
+    const { useCase, rpc, applications } = setup({
+      sessionUser: confirmedSessionUser,
+      alreadyApplied: ({ authUserId }) => authUserId === 'existing-auth-user-id',
+    });
+    await expect(useCase.execute(rawToken, reviewedData, 'session-token')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PREVIOUS_APPLICATION_EXISTS' }),
+    });
+    expect(applications.hasSubmittedApplication).toHaveBeenLastCalledWith({ authUserId: 'existing-auth-user-id', email: 'applicant@example.com' });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('lets a genuinely new applicant submit normally', async () => {
+    const { useCase, accounts, rpc } = setup();
+    await expect(useCase.execute(rawToken, reviewedData)).resolves.toMatchObject({ status: 'NEW' });
+    expect(accounts.createReviewedApplicantAuthUser).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails, without creating an account, when eligibility cannot be checked', async () => {
+    const { useCase, accounts, rpc } = setup({ alreadyApplied: () => { throw new Error('Unable to check for an earlier application'); } });
+    await expect(useCase.execute(rawToken, reviewedData)).rejects.toThrow(/Unable to check/);
+    expect(accounts.createReviewedApplicantAuthUser).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('SubmitReviewedApplicationUseCase: the database refuses a second application (concurrent submissions)', () => {
+  const refused = { data: null, error: { code: 'PZ409', message: 'previous_application_exists' } };
+
+  it('maps previous_application_exists to 409 PREVIOUS_APPLICATION_EXISTS and removes the account it just created', async () => {
+    // Both pre-checks passed (the other draft was not committed yet); the
+    // database function, holding the per-applicant lock, refuses this one.
+    const { useCase, accounts } = setup({ rpc: vi.fn().mockResolvedValue(refused) });
+    const error = await useCase.execute(rawToken, reviewedData).catch((e: unknown) => e) as { getStatus(): number; getResponse(): unknown };
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toMatchObject({ code: 'PREVIOUS_APPLICATION_EXISTS' });
+    expect(accounts.deleteUnlinkedAuthUser).toHaveBeenCalledWith('new-auth-user-id');
+  });
+
+  it('maps it the same way for a signed-in applicant and never deletes their existing account', async () => {
+    const { useCase, accounts } = setup({ sessionUser: confirmedSessionUser, rpc: vi.fn().mockResolvedValue(refused) });
+    await expect(useCase.execute(rawToken, reviewedData, 'session-token')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PREVIOUS_APPLICATION_EXISTS' }),
+    });
+    expect(accounts.deleteUnlinkedAuthUser).not.toHaveBeenCalled();
+  });
+
+  it('refuses one of two concurrent submissions of different drafts by the same applicant', async () => {
+    // The database serializes them: the first commits, the second sees it.
+    let committed = false;
+    const rpc = vi.fn(async () => {
+      if (committed) return refused;
+      committed = true;
+      return { data: [successRow], error: null };
+    });
+    const { useCase } = setup({ sessionUser: confirmedSessionUser, rpc });
+    const results = await Promise.allSettled([
+      useCase.execute(rawToken, reviewedData, 'session-token'),
+      useCase.execute(rawToken, reviewedData, 'session-token'),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    expect(rejected?.reason).toMatchObject({ response: expect.objectContaining({ code: 'PREVIOUS_APPLICATION_EXISTS' }) });
+  });
+});
+
+describe('SubmitReviewedApplicationUseCase: a CV already submitted with another application', () => {
+  it('is refused with CV_ALREADY_SUBMITTED before the one-application rule and before any account is created', async () => {
+    const { useCase, accounts, rpc, getUser, applications } = setup({ cvAlreadySubmitted: true, alreadyApplied: () => true, sessionUser: confirmedSessionUser });
+    const error = await useCase.execute(rawToken, reviewedData, 'session-token').catch((e: unknown) => e) as { getStatus(): number; getResponse(): unknown };
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toMatchObject({ code: 'CV_ALREADY_SUBMITTED' });
+    expect(applications.hasSubmittedApplicationForCv).toHaveBeenCalledWith('c'.repeat(64), 'draft-id');
+    expect(applications.hasSubmittedApplication).not.toHaveBeenCalled();
+    expect(accounts.createReviewedApplicantAuthUser).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('is not checked for a legacy draft without a stored fingerprint', async () => {
+    const { useCase, applications } = setup({ application: { ...draft, cv_sha256: null } });
+    await expect(useCase.execute(rawToken, reviewedData)).resolves.toMatchObject({ status: 'NEW' });
+    expect(applications.hasSubmittedApplicationForCv).not.toHaveBeenCalled();
   });
 });

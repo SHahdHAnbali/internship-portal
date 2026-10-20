@@ -1,4 +1,4 @@
-import { BriefcaseBusiness, ClipboardList, LogOut } from 'lucide-react';
+import { BriefcaseBusiness, ClipboardList, LogOut, NotebookPen } from 'lucide-react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,9 @@ export default function MentorLayout() {
         <nav aria-label="Mentor navigation" className="flex-1 space-y-1 p-4">
           <NavLink to="/mentor" end className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-muted-foreground hover:bg-muted'}`}>
             <ClipboardList className="size-4" />Assigned Interns
+          </NavLink>
+          <NavLink to="/mentor/evaluations" className={({ isActive }) => `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium ${isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-muted-foreground hover:bg-muted'}`}>
+            <NotebookPen className="size-4" />Evaluations
           </NavLink>
         </nav>
         <div className="border-t p-4">

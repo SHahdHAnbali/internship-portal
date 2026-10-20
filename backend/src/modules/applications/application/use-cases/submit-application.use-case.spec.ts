@@ -1,4 +1,4 @@
-import { ConflictException, ServiceUnavailableException, UnprocessableEntityException } from '@nestjs/common';
+import { ConflictException, ServiceUnavailableException, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 
 import { SubmitApplicationUseCase } from './submit-application.use-case.js';
@@ -21,6 +21,9 @@ function setup(options: {
   emailService?: unknown;
   duplicateCv?: boolean;
   intakeOpen?: boolean;
+  // Whether this identity already has a submitted application.
+  alreadyApplied?: (identity: { authUserId?: string | null; email?: string | null }) => boolean;
+  sessionUser?: { id: string; email: string } | null;
 } = {}) {
   const extractedData = {
     email: options.extractedEmail === undefined
@@ -31,13 +34,16 @@ function setup(options: {
   } as unknown as ExtractedCvData;
   const touchedTables: string[] = [];
   const createUser = vi.fn();
+  const getUser = vi.fn(async () => (options.sessionUser
+    ? { data: { user: options.sessionUser }, error: null }
+    : { data: { user: null }, error: { message: 'invalid' } }));
   const rpc = vi.fn(async (name: string) => (name === 'get_application_intake'
     ? { data: options.intakeOpen ?? true, error: null }
     : { data: null, error: { message: `unexpected rpc ${name}` } }));
   const supabase = {
     client: {
       rpc,
-      auth: { admin: { createUser } },
+      auth: { admin: { createUser }, getUser },
       from: (table: string) => {
         touchedTables.push(table);
         if (table !== 'internships') {
@@ -59,7 +65,9 @@ function setup(options: {
   const applicationRepository = {
     createDraft: vi.fn(options.createDraft ?? (async () => draft)),
     deleteUnsubmittedDraft: vi.fn(async () => undefined),
-    hasActiveApplicationForCv: vi.fn(async () => options.duplicateCv ?? false),
+    hasSubmittedApplicationForCv: vi.fn(async () => options.duplicateCv ?? false),
+    hasSubmittedApplication: vi.fn(async (identity: { authUserId?: string | null; email?: string | null }) =>
+      options.alreadyApplied?.(identity) ?? false),
   };
   const cvStorageService = {
     assertValidFile: vi.fn(),
@@ -92,6 +100,7 @@ function setup(options: {
     aiCvParserService,
     cvTextExtractorService,
     rpc,
+    getUser,
   };
 }
 
@@ -260,19 +269,120 @@ describe('SubmitApplicationUseCase with the development recipient override', () 
 });
 
 describe('SubmitApplicationUseCase duplicate CV protection', () => {
-  it('refuses a CV already active for the same training before any AI call or storage', async () => {
+  it.each([
+    ['the same training', 'internship-id', null],
+    ['a different listed training', 'other-internship-id', null],
+    ['an "Other" training area', null, 'Data Science'],
+  ])('refuses a CV already submitted with an application, for %s, with its own message before any AI call or storage', async (_label, internshipId, requested) => {
     const ctx = setup({ duplicateCv: true });
+    const error = await ctx.useCase.execute(internshipId, requested, file).catch((e: unknown) => e) as ConflictException;
 
-    await expect(ctx.useCase.execute('internship-id', null, file)).rejects.toBeInstanceOf(ConflictException);
-    expect(ctx.applicationRepository.hasActiveApplicationForCv).toHaveBeenCalledWith(CV_SHA256, 'internship-id', null);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(error.getResponse()).toMatchObject({ statusCode: 409, code: 'CV_ALREADY_SUBMITTED' });
+    expect((error.getResponse() as { message: string }).message).toMatch(/already been submitted with an application, so it cannot be used for another application/);
+    // Any training: the target plays no part in the lookup.
+    expect(ctx.applicationRepository.hasSubmittedApplicationForCv).toHaveBeenCalledWith(CV_SHA256, null);
+    expect(ctx.aiCvParserService.parse).not.toHaveBeenCalled();
     expect(ctx.cvStorageService.upload).not.toHaveBeenCalled();
     expect(ctx.applicationRepository.createDraft).not.toHaveBeenCalled();
     expect(ctx.applicationEmailService.sendReviewEmail).not.toHaveBeenCalled();
   });
 
-  it('checks "Other" requests by their trimmed training label', async () => {
+  // Regression: a previously submitted CV re-uploaded by an applicant who has
+  // also already applied must report the CV, not "already applied".
+  it('reports a re-used CV as such even when its applicant has already applied (guest or signed in)', async () => {
+    const guest = setup({ duplicateCv: true, alreadyApplied: () => true });
+    await expect(guest.useCase.execute('other-internship-id', null, file)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CV_ALREADY_SUBMITTED' }),
+    });
+    expect(guest.applicationRepository.hasSubmittedApplication).not.toHaveBeenCalled();
+
+    const signedIn = setup({
+      duplicateCv: true,
+      alreadyApplied: () => true,
+      sessionUser: { id: 'auth-id', email: 'applicant@example.com' },
+    });
+    await expect(signedIn.useCase.execute('other-internship-id', null, file, 'session-token')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'CV_ALREADY_SUBMITTED' }),
+    });
+    expect(signedIn.getUser).not.toHaveBeenCalled();
+  });
+
+  it('a new CV from an applicant who has already applied falls to the one-application rule', async () => {
+    const ctx = setup({ duplicateCv: false, alreadyApplied: ({ email }) => email === 'applicant@example.com' });
+    await expect(ctx.useCase.execute('other-internship-id', null, file)).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PREVIOUS_APPLICATION_EXISTS' }),
+    });
+  });
+
+  it('fails, storing nothing, when the CV check cannot run', async () => {
     const ctx = setup();
-    await ctx.useCase.execute(null, '  Data Science ', file);
-    expect(ctx.applicationRepository.hasActiveApplicationForCv).toHaveBeenCalledWith(CV_SHA256, null, 'Data Science');
+    ctx.applicationRepository.hasSubmittedApplicationForCv.mockRejectedValueOnce(new Error('Unable to check whether this CV was already submitted'));
+    await expect(ctx.useCase.execute('internship-id', null, file)).rejects.toThrow(/Unable to check/);
+    expect(ctx.aiCvParserService.parse).not.toHaveBeenCalled();
+    expect(ctx.cvStorageService.upload).not.toHaveBeenCalled();
+  });
+});
+
+// The 7 existing accounts: 6 applicants whose applications are still pending
+// (NEW and later statuses) and 1 who was selected and became an INTERN. Every
+// one of them is refused, whatever training or CV they use; the repository
+// counts every status except DRAFT (see its spec).
+describe('SubmitApplicationUseCase: one application per applicant, ever', () => {
+  const differentCv = { ...file, buffer: Buffer.from('a completely different CV') } as Express.Multer.File;
+
+  it.each([
+    ['the same training', 'internship-id', null, file],
+    ['a different listed training with a different CV', 'other-internship-id', null, differentCv],
+    ['an "Other" training area', null, 'Robotics', differentCv],
+  ])('refuses an applicant (by the email in the CV) who already applied, for %s, before storing or emailing anything', async (_label, internshipId, requested, cv) => {
+    const ctx = setup({ alreadyApplied: ({ email }) => email === 'applicant@example.com' });
+    const error = await ctx.useCase.execute(internshipId, requested, cv).catch((e: unknown) => e) as ConflictException;
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(error.getResponse()).toMatchObject({ statusCode: 409, code: 'PREVIOUS_APPLICATION_EXISTS' });
+    expect(JSON.stringify(error.getResponse())).not.toMatch(/@|Engineering|Robotics|internship-id/);
+    expect(ctx.applicationRepository.hasSubmittedApplication).toHaveBeenCalledWith({ email: 'applicant@example.com' });
+    expect(ctx.cvStorageService.upload).not.toHaveBeenCalled();
+    expect(ctx.applicationRepository.createDraft).not.toHaveBeenCalled();
+    expect(ctx.applicationEmailService.sendReviewEmail).not.toHaveBeenCalled();
+  });
+
+  it('refuses a signed-in applicant or intern with a submitted application before the CV is even parsed', async () => {
+    const ctx = setup({
+      sessionUser: { id: 'intern-auth-id', email: 'Intern@Example.com' },
+      alreadyApplied: ({ authUserId }) => authUserId === 'intern-auth-id',
+    });
+    await expect(ctx.useCase.execute('other-internship-id', null, differentCv, 'session-token')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'PREVIOUS_APPLICATION_EXISTS' }),
+    });
+    expect(ctx.getUser).toHaveBeenCalledWith('session-token');
+    expect(ctx.applicationRepository.hasSubmittedApplication).toHaveBeenCalledWith({ authUserId: 'intern-auth-id', email: 'intern@example.com' });
+    expect(ctx.cvTextExtractorService.extractText).not.toHaveBeenCalled();
+    expect(ctx.aiCvParserService.parse).not.toHaveBeenCalled();
+    expect(ctx.cvStorageService.upload).not.toHaveBeenCalled();
+  });
+
+  it('refuses an invalid session instead of treating the caller as anonymous', async () => {
+    const ctx = setup();
+    await expect(ctx.useCase.execute('internship-id', null, file, 'bad-token')).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ctx.cvStorageService.upload).not.toHaveBeenCalled();
+  });
+
+  it('lets a genuinely new applicant (signed in or not) apply normally', async () => {
+    const guest = setup();
+    await expect(guest.useCase.execute('internship-id', null, file)).resolves.toMatchObject({ status: 'DRAFT' });
+    expect(guest.applicationRepository.createDraft).toHaveBeenCalledTimes(1);
+
+    const signedIn = setup({ sessionUser: { id: 'new-auth-id', email: 'new@example.com' } });
+    await expect(signedIn.useCase.execute('internship-id', null, file, 'session-token')).resolves.toMatchObject({ status: 'DRAFT' });
+    expect(signedIn.applicationEmailService.sendReviewEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails, storing nothing, when eligibility cannot be checked', async () => {
+    const ctx = setup({ alreadyApplied: () => { throw new Error('Unable to check for an earlier application'); } });
+    await expect(ctx.useCase.execute('internship-id', null, file)).rejects.toThrow(/Unable to check/);
+    expect(ctx.cvStorageService.upload).not.toHaveBeenCalled();
+    expect(ctx.applicationRepository.createDraft).not.toHaveBeenCalled();
   });
 });

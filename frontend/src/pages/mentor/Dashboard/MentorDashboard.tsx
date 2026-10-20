@@ -1,5 +1,8 @@
-import { AlertCircle, ClipboardList, LoaderCircle, RotateCw, UsersRound } from 'lucide-react';
+import { AlertCircle, ClipboardList, LoaderCircle, NotebookPen, RotateCw, UsersRound } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/features/auth/auth-context';
+import { userScopedKey } from '@/lib/query-client';
+import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,7 +34,8 @@ function Summary({ label, value, highlight = false }: { label: string; value: nu
 }
 
 export default function MentorDashboard() {
-  const query = useQuery({ queryKey: ['mentor', 'placements'], queryFn: getMyMentorPlacements, retry: false });
+  const { user } = useAuth();
+  const query = useQuery({ queryKey: userScopedKey(['mentor', 'placements'], user?.id), queryFn: getMyMentorPlacements, retry: false });
 
   return (
     <div className="mx-auto max-w-6xl space-y-7 p-5 sm:p-8">
@@ -79,6 +83,11 @@ export default function MentorDashboard() {
                   <p><span className="text-muted-foreground">Training dates:</span> {placement.startDate} – {placement.endDate}</p>
                   <p><span className="text-muted-foreground">Weekly reports:</span> {placement.reportsAwaitingReview} awaiting review</p>
                 </div>
+                {(placement.status === 'ACTIVE' || placement.status === 'COMPLETED') && (
+                  <Link to={`/mentor/evaluations/${placement.placementId}`}>
+                    <Button type="button" variant="outline" size="sm"><NotebookPen className="mr-2 size-4" />Evaluations</Button>
+                  </Link>
+                )}
                 {placement.status === 'ACTIVE' ? (
                   <MentorWeeklyReports placementId={placement.placementId} />
                 ) : placement.status === 'COMPLETED' ? (

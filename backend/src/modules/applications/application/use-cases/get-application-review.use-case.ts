@@ -2,6 +2,7 @@ import {
   GoneException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -9,13 +10,21 @@ import { createHash } from 'node:crypto';
 
 import { SupabaseService } from '../../../../infrastructure/database/supabase.service.js';
 
+import { ApplicationRepository } from '../../domain/repositories/application.repository.js';
 import { normalizeReviewEmail } from '../../domain/types/review-email.js';
+import { previousApplicationExists } from '../../domain/types/applicant-eligibility.js';
+import { cvAlreadySubmitted } from '../../domain/types/cv-already-submitted.js';
 import { assertApplicationIntakeOpen } from '../../infrastructure/intake/application-intake.js';
 
 // Review tokens are 32 random bytes encoded as base64url (43 characters).
 export const REVIEW_TOKEN_SHAPE = /^[A-Za-z0-9_-]{32,128}$/;
 
 export const REVIEW_LINK_NOT_FOUND = 'REVIEW_LINK_NOT_FOUND';
+
+export type ReviewCvCheck =
+  | { status: 'checked'; duplicate: boolean; previouslyUploaded: boolean }
+  | { status: 'failed' }
+  | { status: 'unavailable' };
 export const REVIEW_LINK_USED = 'REVIEW_LINK_USED';
 export const REVIEW_LINK_EXPIRED = 'REVIEW_LINK_EXPIRED';
 
@@ -26,8 +35,11 @@ function reviewLinkError(status: 'not_found' | 'gone', code: string, message: st
 
 @Injectable()
 export class GetApplicationReviewUseCase {
+  private readonly logger = new Logger(GetApplicationReviewUseCase.name);
+
   constructor(
     private readonly supabase: SupabaseService,
+    private readonly applicationRepository: ApplicationRepository,
   ) {}
 
   async execute(reviewToken: string) {
@@ -46,7 +58,9 @@ export class GetApplicationReviewUseCase {
         review_token_used_at,
         review_email,
         extracted_data,
+        internship_id,
         requested_training,
+        cv_sha256,
         internships ( id, title )
       `)
       .eq('review_token_hash', reviewTokenHash)
@@ -99,9 +113,28 @@ export class GetApplicationReviewUseCase {
       data.review_email ?? extractedData?.email,
     );
 
+    const cvCheck = await this.checkCv(data.id, data.cv_sha256 ?? null);
+
+    // A CV already submitted with another application cannot be used again:
+    // nothing to review. Checked before the one-application rule below.
+    if (cvCheck.status === 'checked' && cvCheck.duplicate) {
+      throw cvAlreadySubmitted();
+    }
+
+    // The applicant this link was sent to has already applied (each applicant
+    // may apply only once): nothing to review. A failed check is an error,
+    // never "eligible"; the final submission checks again.
+    if (
+      reviewEmail &&
+      (await this.applicationRepository.hasSubmittedApplication({ email: reviewEmail }))
+    ) {
+      throw previousApplicationExists();
+    }
+
     return {
       applicationId: data.id,
       reviewEmail,
+      cvCheck,
       internship: internship
         ? { id: internship.id, title: internship.title }
         : null,
@@ -110,5 +143,30 @@ export class GetApplicationReviewUseCase {
         ? { ...extractedData, email: reviewEmail }
         : null,
     };
+  }
+
+  // The CV check for this draft's own file: whether it is already part of
+  // another submitted application (any status or training: the review is
+  // refused) and, as a warning only, whether the same file was uploaded before
+  // for any other application. Drafts from before fingerprints were stored
+  // cannot be checked ("unavailable"). A failed check is reported as such,
+  // never as "no duplicate".
+  private async checkCv(
+    applicationId: string,
+    cvSha256: string | null,
+  ): Promise<ReviewCvCheck> {
+    if (!cvSha256) {
+      return { status: 'unavailable' };
+    }
+    try {
+      const [duplicate, previouslyUploaded] = await Promise.all([
+        this.applicationRepository.hasSubmittedApplicationForCv(cvSha256, applicationId),
+        this.applicationRepository.hasPreviousUploadOfCv(cvSha256, applicationId),
+      ]);
+      return { status: 'checked', duplicate, previouslyUploaded };
+    } catch {
+      this.logger.warn('CV check failed while loading an application review');
+      return { status: 'failed' };
+    }
   }
 }

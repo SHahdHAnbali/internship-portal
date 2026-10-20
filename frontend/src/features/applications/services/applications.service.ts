@@ -164,6 +164,44 @@ export async function runApplicationMatch(
    Public application and review
    --------------------------------------------------------------------------- */
 
+export interface CvCheckResult {
+  // This CV file was already submitted with an application (any status,
+  // training or applicant), so it cannot be used for another application.
+  // (null only from older servers when no training was given.)
+  duplicate: boolean | null;
+  // Warning only: the same file was uploaded before, drafts included.
+  previouslyUploaded: boolean;
+}
+
+// Public, read-only CV check by the file's SHA-256. Answers only yes/no; the
+// server never says who uploaded a matching file or for what.
+export async function checkCvDuplicate(
+  cvSha256: string,
+  internshipId: string | null,
+  requestedTraining: string | null,
+): Promise<CvCheckResult> {
+  const body: Record<string, string> = { cvSha256 };
+  if (internshipId) body.internshipId = internshipId;
+  else if (requestedTraining) body.requestedTraining = requestedTraining;
+
+  const response = await fetch(`${env.apiUrl}/applications/cv-check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(await apiErrorMessage(response, 'Unable to check your CV'));
+  }
+
+  const result = (await response.json().catch(() => null)) as { duplicate?: unknown; previouslyUploaded?: unknown } | null;
+  const duplicateOk = result?.duplicate === null || typeof result?.duplicate === 'boolean';
+  if (!duplicateOk || typeof result?.previouslyUploaded !== 'boolean') {
+    throw new Error('Unable to check your CV');
+  }
+  return { duplicate: result.duplicate as boolean | null, previouslyUploaded: result.previouslyUploaded };
+}
+
 export async function submitApplication(
   internshipId: string | null,
   requestedTraining: string | null,
@@ -181,20 +219,53 @@ export async function submitApplication(
 
   formData.append('cv', cv);
 
+  // A signed-in applicant uploads as their own account, so the server also
+  // checks the one-application rule for that account.
+  const headers = new Headers();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    headers.set('Authorization', `Bearer ${session.access_token}`);
+  }
+
   const response = await fetch(`${env.apiUrl}/applications/submit`, {
     method: 'POST',
+    headers,
     body: formData,
   });
 
   if (!response.ok) {
-    throw new Error(
-      response.status === 413
-        ? 'CV file must be 5 MB or smaller.'
-        : await apiErrorMessage(response, 'Unable to submit application'),
-    );
+    if (response.status === 413) {
+      throw new Error('CV file must be 5 MB or smaller.');
+    }
+    throw await reviewError(response, 'Unable to submit application');
   }
 
   return (await response.json()) as SubmitApplicationResponse;
+}
+
+// A CV file already submitted with an application cannot be used for another
+// one. Returned by the upload, the review link and the final submission;
+// checked before PREVIOUS_APPLICATION_EXISTS.
+export const CV_ALREADY_SUBMITTED = 'CV_ALREADY_SUBMITTED';
+
+// Each applicant may submit only one application, ever (any status, training
+// or CV). Returned by the upload, the review link and the final submission.
+export const PREVIOUS_APPLICATION_EXISTS = 'PREVIOUS_APPLICATION_EXISTS';
+
+// Signed-in user: may they start an application? The server enforces the same
+// rule on the upload and the final submission.
+export async function getApplicationEligibility(): Promise<{ canApply: boolean }> {
+  const response = await authenticatedFetch(`${env.apiUrl}/applications/eligibility`);
+  if (!response.ok) {
+    throw new Error(await apiErrorMessage(response, 'Unable to check whether you can apply.'));
+  }
+  const body = (await response.json().catch(() => null)) as { canApply?: unknown } | null;
+  if (typeof body?.canApply !== 'boolean') {
+    throw new Error('Unable to check whether you can apply.');
+  }
+  return { canApply: body.canApply };
 }
 
 // Portal-wide intake (ADMIN): closed means no new applications and no
@@ -217,7 +288,8 @@ export const REVIEW_LINK_EXPIRED = 'REVIEW_LINK_EXPIRED';
 // must sign in to that account and reopen the review link.
 export const ACCOUNT_SIGN_IN_REQUIRED = 'ACCOUNT_SIGN_IN_REQUIRED';
 
-// An error from the review endpoints, carrying the server's machine code.
+// An error from the application endpoints (upload and review), carrying the
+// server's machine code.
 export class ReviewSubmissionError extends Error {
   readonly code: string | null;
 
@@ -232,8 +304,13 @@ async function reviewError(response: Response, fallback: string): Promise<Review
   const body = (await response.json().catch(() => null)) as
     | { message?: unknown; code?: unknown }
     | null;
+  const message = typeof body?.message === 'string' && body.message.trim()
+    ? body.message
+    : Array.isArray(body?.message) && body.message.length > 0
+      ? body.message.map(String).join(' ')
+      : fallback;
   return new ReviewSubmissionError(
-    typeof body?.message === 'string' ? body.message : fallback,
+    message,
     typeof body?.code === 'string' ? body.code : null,
   );
 }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { MentorPlacement } from '@/features/mentor/services/mentor-placements.service';
@@ -15,6 +16,8 @@ const reportsApi = vi.hoisted(() => ({
 }));
 vi.mock('@/features/mentor/services/mentor-placements.service', () => placementsApi);
 vi.mock('@/features/intern/services/weekly-reports.service', () => reportsApi);
+
+vi.mock('@/features/auth/auth-context', () => ({ useAuth: () => ({ user: { id: 'mentor-1' } }) }));
 
 import MentorDashboard from './MentorDashboard';
 
@@ -35,7 +38,7 @@ const submittedReport: WeeklyReport = {
 
 function renderDashboard() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MentorDashboard /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter><MentorDashboard /></MemoryRouter></QueryClientProvider>);
 }
 
 describe('MentorDashboard', () => {
